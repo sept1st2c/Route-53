@@ -136,7 +136,7 @@ export default function CreateRecordPage() {
         { label: "Create record" },
       ]}
     >
-      <div className="px-7 py-4" style={{ fontFamily: FONT, color: INK }}>
+      <div style={{ fontFamily: FONT, color: INK }}>
         <div className="mb-4 flex items-center gap-2">
           <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>Create record</h1>
           <InfoLink />

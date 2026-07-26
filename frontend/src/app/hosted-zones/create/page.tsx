@@ -111,7 +111,7 @@ export default function CreateHostedZonePage() {
         { label: "Create hosted zone" },
       ]}
     >
-      <div className="px-7 py-3" style={{ fontFamily: FONT, color: INK }}>
+      <div style={{ fontFamily: FONT, color: INK }}>
         {/* Title */}
         <div className="mb-3 flex items-center gap-2">
           <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>

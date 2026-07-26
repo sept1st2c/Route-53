@@ -36,7 +36,7 @@ export function Flashbar() {
   const { flashes, dismiss } = useNotify();
   if (flashes.length === 0) return null;
   return (
-    <div className="flex flex-col gap-2 px-7 pt-3">
+    <div className="flex flex-col gap-2">
       {flashes.map((f) => {
         const s = STYLES[f.type];
         return (

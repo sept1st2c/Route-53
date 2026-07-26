@@ -25,9 +25,6 @@ import { useDrawer } from "@/context/DrawerContext";
 import { useHotkey } from "@/lib/useHotkey";
 import type { HostedZone } from "@/types";
 
-const INK = "var(--rz-ink)";
-const MUTED = "var(--rz-muted)";
-
 type SearchMode = "automatic" | "full" | "fast";
 type Prefs = CollectionPreferencesProps.Preferences<SearchMode>;
 
@@ -196,7 +193,34 @@ export default function HostedZonesPage() {
 
   const selectedCount = selectedItems.length;
   useEffect(() => {
-    setSplitData({ count: selectedCount, detail: one ? <ZoneSplitDetail zone={one} ns={ns} /> : null });
+    setSplitData({
+      count: selectedCount,
+      noun: "hosted zone",
+      detailTitle: "Hosted zone details",
+      fields: one
+        ? [
+            { label: "Hosted zone name", value: one.name.replace(/\.$/, "") },
+            { label: "Hosted zone ID", value: one.zone_id },
+            { label: "Description", value: one.comment || "-" },
+            { label: "Query log", value: "-" },
+            { label: "Type", value: `${one.type} hosted zone` },
+            { label: "Record count", value: String(one.record_count) },
+            {
+              label: "Name servers",
+              value:
+                ns.length > 0 ? (
+                  <ul className="list-disc pl-5">
+                    {ns.map((n) => (
+                      <li key={n}>{n}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  "-"
+                ),
+            },
+          ]
+        : undefined,
+    });
     // `one` is derived from selectedId; excluded to avoid a re-render loop on its changing identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCount, selectedId, ns, setSplitData]);
@@ -231,9 +255,11 @@ export default function HostedZonesPage() {
   );
 
   return (
-    <AppShell breadcrumbs={[{ label: "Route 53", href: "/dashboard" }, { label: "Hosted zones" }]}>
-      <div className="px-7 pt-3">
-        <Table<HostedZone>
+    <AppShell
+      breadcrumbs={[{ label: "Route 53", href: "/dashboard" }, { label: "Hosted zones" }]}
+      splitPanel
+    >
+      <Table<HostedZone>
           variant="full-page"
           items={zones}
           columnDefinitions={COLUMN_DEFINITIONS}
@@ -380,7 +406,6 @@ export default function HostedZonesPage() {
             </Box>
           }
         />
-      </div>
 
       {/* Delete modal */}
       <Modal
@@ -404,45 +429,5 @@ export default function HostedZonesPage() {
         </p>
       </Modal>
     </AppShell>
-  );
-}
-
-/* Split-panel detail for a single selected hosted zone (matches the AWS split panel). */
-function ZoneSplitDetail({ zone, ns }: { zone: HostedZone; ns: string[] }) {
-  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
-    <div className="py-3">
-      <div className="text-[14px] font-bold" style={{ color: INK }}>
-        {label}
-      </div>
-      <div className="text-[14px]" style={{ color: value === "-" ? MUTED : INK }}>
-        {value}
-      </div>
-    </div>
-  );
-  return (
-    <div style={{ color: INK }}>
-      <Field label="Hosted zone name" value={zone.name.replace(/\.$/, "")} />
-      <Field label="Hosted zone ID" value={zone.zone_id} />
-      <Field label="Description" value={zone.comment || "-"} />
-      <Field label="Query log" value="-" />
-      <Field label="Type" value={`${zone.type} hosted zone`} />
-      <Field label="Record count" value={String(zone.record_count)} />
-      <div className="py-3">
-        <div className="text-[14px] font-bold" style={{ color: INK }}>
-          Name servers
-        </div>
-        {ns.length > 0 ? (
-          <ul className="mt-1 list-disc pl-5 text-[14px]">
-            {ns.map((n) => (
-              <li key={n}>{n}</li>
-            ))}
-          </ul>
-        ) : (
-          <div className="text-[14px]" style={{ color: MUTED }}>
-            -
-          </div>
-        )}
-      </div>
-    </div>
   );
 }

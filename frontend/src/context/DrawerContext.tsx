@@ -2,11 +2,19 @@
 
 import { createContext, useContext, useState, ReactNode, useCallback } from "react";
 
-export type DrawerKey = "help" | "tools" | "split";
+/** Matches Cloudscape AppLayout's `splitPanelPreferences.position`. */
 export type SplitPosition = "side" | "bottom";
+
+/** One label/value row rendered in the split panel by Cloudscape KeyValuePairs. */
+export type SplitField = { label: string; value: ReactNode };
+
 export type SplitData = {
+  /** How many rows are selected in the page's table. */
   count: number;
-  detail: ReactNode | null;
+  /** Preferred: laid out by KeyValuePairs, which reflows into columns when docked at the bottom. */
+  fields?: SplitField[];
+  /** Escape hatch for content that isn't a simple label/value list. */
+  detail?: ReactNode | null;
   /** Singular noun for the selection count, e.g. "hosted zone" or "record". */
   noun?: string;
   /** Heading shown when exactly one item is selected, e.g. "Record details". */
@@ -14,9 +22,8 @@ export type SplitData = {
 };
 
 interface DrawerCtx {
-  open: Record<DrawerKey, boolean>;
-  toggle: (id: DrawerKey) => void;
-  close: (id: DrawerKey) => void;
+  splitOpen: boolean;
+  setSplitOpen: (open: boolean) => void;
   splitPosition: SplitPosition;
   setSplitPosition: (p: SplitPosition) => void;
   splitData: SplitData;
@@ -26,16 +33,16 @@ interface DrawerCtx {
 const DrawerContext = createContext<DrawerCtx | null>(null);
 
 export function DrawerProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState<Record<DrawerKey, boolean>>({ help: false, tools: false, split: false });
+  const [splitOpen, setSplitOpen] = useState(false);
   const [splitPosition, setSplitPosition] = useState<SplitPosition>("side");
-  const [splitData, setSplitDataState] = useState<SplitData>({ count: 0, detail: null });
+  const [splitData, setSplitDataState] = useState<SplitData>({ count: 0 });
 
-  const toggle = useCallback((id: DrawerKey) => setOpen((o) => ({ ...o, [id]: !o[id] })), []);
-  const close = useCallback((id: DrawerKey) => setOpen((o) => ({ ...o, [id]: false })), []);
   const setSplitData = useCallback((d: SplitData) => setSplitDataState(d), []);
 
   return (
-    <DrawerContext.Provider value={{ open, toggle, close, splitPosition, setSplitPosition, splitData, setSplitData }}>
+    <DrawerContext.Provider
+      value={{ splitOpen, setSplitOpen, splitPosition, setSplitPosition, splitData, setSplitData }}
+    >
       {children}
     </DrawerContext.Provider>
   );

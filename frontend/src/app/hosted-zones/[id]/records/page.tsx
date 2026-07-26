@@ -226,8 +226,9 @@ export default function RecordsPage() {
         { label: "Hosted zones", href: "/hosted-zones" },
         { label: zoneName.replace(/\.$/, "") || "…" },
       ]}
+      splitPanel
     >
-      <div className="px-7 py-4" style={{ fontFamily: FONT, color: INK }}>
+      <div style={{ fontFamily: FONT, color: INK }}>
         {/* Page header */}
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <h1 className="flex items-center gap-2 text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>

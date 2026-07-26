@@ -9,6 +9,22 @@ const SECTIONS: Record<string, { title: string; description: string }> = {
     title: "Global resolvers",
     description: "Create global resolver endpoints that route DNS queries across regions and VPCs.",
   },
+  "shared-dns-views": {
+    title: "Shared DNS views",
+    description: "Share a consistent view of your private DNS names across accounts and VPCs.",
+  },
+  "registered-domains": {
+    title: "Registered domains",
+    description: "Domains registered with Route 53, and their renewal and transfer settings.",
+  },
+  requests: {
+    title: "Requests",
+    description: "Track the status of domain registration, transfer, and update requests.",
+  },
+  "cidr-collections": {
+    title: "CIDR collections",
+    description: "Group CIDR blocks to route traffic based on the IP address of the client.",
+  },
   vpcs: {
     title: "VPCs",
     description: "View the VPCs associated with your private hosted zones.",

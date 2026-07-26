@@ -17,7 +17,7 @@ const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
 export function ComingSoon({ title, description }: { title: string; description?: string }) {
   return (
     <AppShell breadcrumbs={[{ label: "Route 53", href: "/dashboard" }, { label: title }]}>
-      <div className="px-7 pt-3" style={{ fontFamily: FONT, color: INK }}>
+      <div style={{ fontFamily: FONT, color: INK }}>
         {/* Page header */}
         <h1 className="text-[24px] leading-[30px]" style={{ letterSpacing: "-0.48px" }}>
           <span className="font-bold">{title}</span>
