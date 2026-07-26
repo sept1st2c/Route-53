@@ -52,10 +52,10 @@ Dashboard · Traffic Policies · Health Checks · Resolver · Profiles
 | Bonus                       | Status |
 | --------------------------- | ------ |
 | Import DNS records from BIND zone files | ✅ Implemented (paste a zone file; SOA/apex-NS are skipped, duplicates merged) |
+| Export as JSON / BIND       | ✅ Implemented ("Export zone file" on the records page — downloads all records as a BIND zone file or JSON) |
 | Dark mode                   | ✅ Implemented (persisted in `localStorage`) |
 | Bulk operations             | ✅ Implemented (multi-select delete for records and zones) |
-| Export as JSON / BIND       | ⬜ Not yet implemented |
-| Keyboard shortcuts          | ⬜ Not yet implemented (only Escape-to-close menus) |
+| Keyboard shortcuts          | ✅ Implemented — `?` shortcuts reference, `Alt+S` focus top search, `/` focus page filter, `c` create, `Esc` close any modal/menu |
 
 ---
 
@@ -247,6 +247,7 @@ Base URL: `http://localhost:8000/api` · Full interactive docs at `/api/docs`.
 | DELETE | `/zones/{id}/records/{rid}`       | Delete one (protected NS/SOA blocked)             |
 | DELETE | `/zones/{id}/records?ids=1,2,3`   | Bulk delete                                       |
 | POST   | `/zones/{id}/records/import`      | Import records from a pasted BIND zone file       |
+| GET    | `/zones/{id}/export?format=json\|bind` | Export all of a zone's records as JSON or a BIND zone file |
 
 ### Health
 | Method | Path          | Description           |
@@ -259,6 +260,5 @@ All zone/record endpoints require authentication and are scoped to the signed-in
 
 ## Notes & Known Gaps
 
-- **Demo link** — a hosted deployment URL still needs to be added here (see assignment deliverables).
-- **Export** (JSON / BIND) and **keyboard shortcuts** are unimplemented optional bonuses.
 - Authentication is intentionally **mocked** for the assignment; IAM, Organizations, and Billing are not modeled.
+- Hosted zone **tags** are UI-only (not persisted to the backend yet).

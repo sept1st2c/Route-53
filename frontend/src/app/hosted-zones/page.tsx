@@ -10,6 +10,7 @@ import { zoneService, recordService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
 import { useDrawer } from "@/context/DrawerContext";
+import { useHotkey } from "@/lib/useHotkey";
 import type { HostedZone } from "@/types";
 
 const INK = "var(--rz-ink)";
@@ -46,6 +47,8 @@ export default function HostedZonesPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const { widths, total: tableWidth, startResize } = useResizableColumns(COL_DEFAULTS);
+
+  useHotkey("c", () => router.push("/hosted-zones/create"));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -172,6 +175,7 @@ export default function HostedZonesPage() {
               </svg>
             </span>
             <input
+              id="page-filter-input"
               value={search}
               onChange={(e) => {
                 setPage(1);

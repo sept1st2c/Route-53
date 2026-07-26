@@ -62,6 +62,18 @@ export const zoneService = {
   async remove(id: number): Promise<void> {
     await api.delete(`/zones/${id}`);
   },
+  async export(id: number, format: "json" | "bind"): Promise<{ data: string; filename: string }> {
+    const { data, headers } = await api.get(`/zones/${id}/export`, {
+      params: { format },
+      responseType: format === "json" ? "json" : "text",
+      transformResponse: format === "json" ? undefined : [(d) => d],
+    });
+    const disposition: string | undefined = headers["content-disposition"];
+    const match = disposition?.match(/filename="(.+)"/);
+    const filename = match?.[1] || (format === "json" ? "zone.json" : "zone.txt");
+    const text = format === "json" ? JSON.stringify(data, null, 2) : (data as string);
+    return { data: text, filename };
+  },
 };
 
 // ─── DNS Records ──────────────────────────────────────────────────────────────

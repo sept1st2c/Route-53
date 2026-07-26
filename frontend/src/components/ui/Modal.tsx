@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useEffect } from "react";
 
 const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
 
@@ -17,6 +17,15 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
 }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-center" style={{ fontFamily: FONT }}>

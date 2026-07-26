@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from app.database import get_db
@@ -6,6 +7,7 @@ from app.models import HostedZone, DNSRecord
 from app.schemas import ZoneCreate, ZoneUpdate, ZoneOut, ZoneListResponse
 from app.routes.auth import get_current_user
 from app.models import User
+from datetime import datetime, timezone
 import random
 import string
 import math
@@ -154,6 +156,70 @@ def update_zone(
     db.commit()
     db.refresh(zone)
     return ZoneOut.from_orm_with_count(zone)
+
+
+@router.get("/{zone_id}/export")
+def export_zone(
+    zone_id: int,
+    format: str = Query(default="json", pattern="^(json|bind)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export a hosted zone's records as JSON or a BIND-style zone file."""
+    zone = (
+        db.query(HostedZone)
+        .filter(HostedZone.id == zone_id, HostedZone.owner_id == current_user.id)
+        .first()
+    )
+    if not zone:
+        raise HTTPException(status_code=404, detail="Hosted zone not found")
+
+    records = (
+        db.query(DNSRecord)
+        .filter(DNSRecord.zone_id == zone_id)
+        .order_by(DNSRecord.name, DNSRecord.type)
+        .all()
+    )
+    base_filename = zone.name.rstrip(".")
+
+    if format == "json":
+        payload = {
+            "hosted_zone": {
+                "name": zone.name,
+                "type": zone.type,
+                "comment": zone.comment,
+                "zone_id": zone.zone_id,
+            },
+            "records": [
+                {
+                    "name": r.name,
+                    "type": r.type,
+                    "ttl": r.ttl,
+                    "value": r.value.split("\n"),
+                    "routing_policy": r.routing_policy,
+                    "comment": r.comment,
+                }
+                for r in records
+            ],
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+        }
+        return JSONResponse(
+            content=payload,
+            headers={"Content-Disposition": f'attachment; filename="{base_filename}.json"'},
+        )
+
+    # BIND zone file
+    lines = [f"$ORIGIN {zone.name}", "$TTL 300", ""]
+    for r in records:
+        fqdn = r.name.rstrip(".") + "."
+        ttl = r.ttl or 300
+        for value in r.value.split("\n"):
+            lines.append(f"{fqdn:<32} {ttl:<7} IN {r.type:<6} {value}")
+    text = "\n".join(lines) + "\n"
+    return PlainTextResponse(
+        content=text,
+        headers={"Content-Disposition": f'attachment; filename="{base_filename}.txt"'},
+    )
 
 
 @router.delete("/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)

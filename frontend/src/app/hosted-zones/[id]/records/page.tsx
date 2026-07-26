@@ -11,6 +11,7 @@ import { zoneService, recordService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
 import { useDrawer } from "@/context/DrawerContext";
+import { useHotkey } from "@/lib/useHotkey";
 import { RECORD_TYPES, type DNSRecord, type HostedZone } from "@/types";
 
 const INK = "var(--rz-ink)";
@@ -67,11 +68,16 @@ export default function RecordsPage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const { widths, total: tableWidth, startResize } = useResizableColumns(COL_DEFAULTS);
 
+  useHotkey("c", () => router.push(`/hosted-zones/${zoneId}/records/create`));
+
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<DNSRecord | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteZoneOpen, setDeleteZoneOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<"json" | "bind">("bind");
+  const [exporting, setExporting] = useState(false);
 
   const loadZone = useCallback(async () => {
     try {
@@ -167,6 +173,26 @@ export default function RecordsPage() {
       notify({ type: "error", content: apiError(e, "Failed to delete records") });
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const doExport = async () => {
+    setExporting(true);
+    try {
+      const { data, filename } = await zoneService.export(zoneId, exportFormat);
+      const blob = new Blob([data], { type: exportFormat === "json" ? "application/json" : "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify({ type: "success", content: `Exported ${filename}.` });
+      setExportOpen(false);
+    } catch (e) {
+      notify({ type: "error", content: apiError(e, "Failed to export hosted zone") });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -288,6 +314,7 @@ export default function RecordsPage() {
                     Delete record
                   </Button>
                   <Button onClick={() => router.push(`/hosted-zones/${zoneId}/import`)}>Import zone file</Button>
+                  <Button onClick={() => setExportOpen(true)}>Export zone file</Button>
                   <Button variant="primary" onClick={() => router.push(`/hosted-zones/${zoneId}/records/create`)}>
                     Create record
                   </Button>
@@ -307,6 +334,7 @@ export default function RecordsPage() {
                     </svg>
                   </span>
                   <input
+                    id="page-filter-input"
                     value={search}
                     onChange={(e) => { setPage(1); setSearch(e.target.value); }}
                     placeholder="Filter records by property or value"
@@ -492,6 +520,56 @@ export default function RecordsPage() {
         }
       >
         <p>Permanently delete {one ? <b>{one.name} ({one.type})</b> : <b>{selectedRecords.length} records</b>}? This action cannot be undone.</p>
+      </Modal>
+
+      {/* Export zone file modal */}
+      <Modal
+        open={exportOpen}
+        title="Export zone file"
+        onClose={() => setExportOpen(false)}
+        footer={
+          <>
+            <Button onClick={() => setExportOpen(false)} disabled={exporting}>Cancel</Button>
+            <Button variant="primary" onClick={doExport} disabled={exporting}>
+              {exporting ? "Exporting…" : "Download"}
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3" style={{ color: SECONDARY }}>
+          Download every record in <b>{zoneName}</b> in the format you choose.
+        </p>
+        <div className="flex flex-col gap-2">
+          {([
+            ["bind", "BIND zone file (.txt)", "RFC 1035 master-file format — the same format used by Import zone file."],
+            ["json", "JSON (.json)", "Structured JSON with the hosted zone and all of its records."],
+          ] as const).map(([value, title, desc]) => {
+            const selected = exportFormat === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setExportFormat(value)}
+                className="flex items-start gap-2 rounded-lg px-3 pb-3 pt-2 text-left"
+                style={{
+                  backgroundColor: selected ? "var(--rz-selected)" : "var(--rz-surface)",
+                  border: `1px solid ${selected ? LINK : "var(--rz-borderstrong)"}`,
+                }}
+              >
+                <span className="mt-0.5">
+                  <svg viewBox="0 0 100 100" width="16" height="16" aria-hidden>
+                    <circle cx="50" cy="50" r="46" fill="none" stroke={selected ? LINK : "var(--rz-borderstrong)"} strokeWidth="6.25" />
+                    {selected && <circle cx="50" cy="50" r="22" fill={LINK} />}
+                  </svg>
+                </span>
+                <span>
+                  <span className="block text-[14px] leading-5" style={{ color: INK }}>{title}</span>
+                  <span className="block text-[12px] leading-4" style={{ color: MUTED }}>{desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </Modal>
 
       {/* Delete zone modal */}

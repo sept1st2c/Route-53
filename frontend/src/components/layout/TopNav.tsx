@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
+import { useShortcuts } from "@/context/ShortcutsContext";
 
 const BAR = "#161d26";
 const TEXT = "#ebebf0";
@@ -157,6 +158,7 @@ export function TopNav() {
   const router = useRouter();
   const { logout } = useAuth();
   const { theme, toggle } = useTheme();
+  const { openHelp } = useShortcuts();
   const [menu, setMenu] = useState<Menu>(null);
   const ref = useRef<HTMLElement>(null);
 
@@ -220,6 +222,7 @@ export function TopNav() {
             <SearchIcon />
           </span>
           <input
+            id="global-search-input"
             type="search"
             placeholder="Search"
             className="h-full w-full bg-transparent text-[14px] italic outline-none placeholder:italic"
@@ -264,8 +267,18 @@ export function TopNav() {
               ))}
             </ul>
             <hr className="mx-5 my-2" style={{ borderColor: DIVIDER }} />
-            <div className="px-5 pb-5 pt-1">
-              <button className="text-[14px] font-bold" style={{ color: LINK }}>Send feedback</button>
+            <div className="flex flex-col gap-3 px-5 pb-5 pt-1">
+              <button
+                className="text-left text-[14px] font-bold"
+                style={{ color: LINK }}
+                onClick={() => {
+                  setMenu(null);
+                  openHelp();
+                }}
+              >
+                Keyboard shortcuts <kbd className="ml-1 rounded px-1 text-[11px]" style={{ border: `1px solid ${DIVIDER}` }}>?</kbd>
+              </button>
+              <button className="text-left text-[14px] font-bold" style={{ color: LINK }}>Send feedback</button>
             </div>
           </Panel>
         )}
