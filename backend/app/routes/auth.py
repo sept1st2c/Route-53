@@ -18,6 +18,9 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))
+# In production the frontend and backend live on different domains, so the session
+# cookie needs SameSite=None + Secure to be sent cross-site at all (requires HTTPS).
+IS_PRODUCTION = os.getenv("ENVIRONMENT", "development") == "production"
 
 
 def verify_password(plain: str, hashed: str) -> bool:
@@ -41,7 +44,8 @@ def set_session_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        samesite="lax",
+        samesite="none" if IS_PRODUCTION else "lax",
+        secure=IS_PRODUCTION,
     )
 
 
@@ -123,7 +127,11 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("access_token")
+    response.delete_cookie(
+        "access_token",
+        samesite="none" if IS_PRODUCTION else "lax",
+        secure=IS_PRODUCTION,
+    )
     return {"message": "Logged out successfully"}
 
 
