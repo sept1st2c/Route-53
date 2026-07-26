@@ -1,11 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Table, { type TableProps } from "@cloudscape-design/components/table";
+import Header from "@cloudscape-design/components/header";
+import Button from "@cloudscape-design/components/button";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import TextFilter from "@cloudscape-design/components/text-filter";
+import Pagination from "@cloudscape-design/components/pagination";
+import CollectionPreferences, {
+  type CollectionPreferencesProps,
+} from "@cloudscape-design/components/collection-preferences";
+import Link from "@cloudscape-design/components/link";
+import Box from "@cloudscape-design/components/box";
+import FormField from "@cloudscape-design/components/form-field";
+import RadioGroup from "@cloudscape-design/components/radio-group";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
+import { Button as AwsButton } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { useResizableColumns, ResizeHandle } from "@/components/ui/ResizableColumns";
 import { zoneService, recordService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
@@ -14,22 +26,73 @@ import { useHotkey } from "@/lib/useHotkey";
 import type { HostedZone } from "@/types";
 
 const INK = "var(--rz-ink)";
-const SECONDARY = "var(--rz-secondary)";
 const MUTED = "var(--rz-muted)";
-const LINK = "var(--rz-link)";
-const BORDER = "var(--rz-border)";
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
-const LIMIT = 10;
 
-const COLUMNS = ["Hosted zone name", "Type", "Created by", "Record count", "Description", "Hosted zone ID"];
-const COL_DEFAULTS = [240, 90, 110, 130, 240, 220];
-const CHECKBOX_W = 44;
+type SearchMode = "automatic" | "full" | "fast";
+type Prefs = CollectionPreferencesProps.Preferences<SearchMode>;
 
-function SortCaret() {
+const PREFS_STORAGE_KEY = "r53-hosted-zones-prefs";
+
+const ALL_COLUMN_IDS = ["name", "type", "createdBy", "record_count", "comment", "zone_id"];
+
+const DEFAULT_PREFS: Prefs = {
+  pageSize: 10,
+  wrapLines: false,
+  visibleContent: ALL_COLUMN_IDS,
+  custom: "automatic",
+};
+
+const COLUMN_DEFINITIONS: TableProps.ColumnDefinition<HostedZone>[] = [
+  {
+    id: "name",
+    header: "Hosted zone name",
+    sortingField: "name",
+    width: 260,
+    minWidth: 160,
+    cell: (z) => <ZoneNameLink zone={z} />,
+  },
+  { id: "type", header: "Type", sortingField: "type", width: 110, minWidth: 90, cell: (z) => z.type },
+  { id: "createdBy", header: "Created by", width: 130, minWidth: 100, cell: () => "Route 53" },
+  {
+    id: "record_count",
+    header: "Record count",
+    sortingField: "record_count",
+    width: 140,
+    minWidth: 110,
+    cell: (z) => z.record_count,
+  },
+  {
+    id: "comment",
+    header: "Description",
+    sortingField: "comment",
+    width: 260,
+    minWidth: 120,
+    cell: (z) => z.comment || "-",
+  },
+  {
+    id: "zone_id",
+    header: "Hosted zone ID",
+    sortingField: "zone_id",
+    width: 220,
+    minWidth: 140,
+    cell: (z) => z.zone_id,
+  },
+];
+
+/** Zone name cell — navigates to the zone's records via the app router. */
+function ZoneNameLink({ zone }: { zone: HostedZone }) {
+  const router = useRouter();
+  const href = `/hosted-zones/${zone.id}/records`;
   return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill="var(--rz-borderstrong)" aria-hidden className="ml-1 inline-block">
-      <path d="M8 11 4 5h8l-4 6Z" />
-    </svg>
+    <Link
+      href={href}
+      onFollow={(e) => {
+        e.preventDefault();
+        router.push(href);
+      }}
+    >
+      {zone.name}
+    </Link>
   );
 }
 
@@ -43,27 +106,61 @@ export default function HostedZonesPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [selectedItems, setSelectedItems] = useState<HostedZone[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const { widths, total: tableWidth, startResize } = useResizableColumns(COL_DEFAULTS);
+
+  const [sortingColumn, setSortingColumn] = useState<TableProps.SortingColumn<HostedZone>>({
+    sortingField: "created_at",
+  });
+  const [sortingDescending, setSortingDescending] = useState(true);
+
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
+
+  // Restore saved table preferences (page size, visible columns, …) like the real console does.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PREFS_STORAGE_KEY);
+      if (raw) setPrefs({ ...DEFAULT_PREFS, ...JSON.parse(raw) });
+    } catch {
+      /* ignore malformed saved preferences */
+    }
+  }, []);
+
+  const savePrefs = (next: Prefs) => {
+    setPrefs(next);
+    setPage(1);
+    try {
+      localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* storage may be unavailable — preferences just won't persist */
+    }
+  };
 
   useHotkey("c", () => router.push("/hosted-zones/create"));
+
+  const pageSize = prefs.pageSize ?? 10;
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await zoneService.list({ search, page, limit: LIMIT });
+      const data = await zoneService.list({
+        search,
+        page,
+        limit: pageSize,
+        sortBy: sortingColumn.sortingField ?? "created_at",
+        sortOrder: sortingDescending ? "desc" : "asc",
+      });
       setZones(data.items);
       setTotal(data.total);
       setPages(data.pages);
-      setSelected(new Set());
+      setSelectedItems([]);
     } catch (e) {
       notify({ type: "error", content: apiError(e, "Failed to load hosted zones") });
     } finally {
       setLoading(false);
     }
-  }, [search, page, notify]);
+  }, [search, page, pageSize, sortingColumn, sortingDescending, notify]);
 
   // debounce search
   useEffect(() => {
@@ -71,17 +168,7 @@ export default function HostedZonesPage() {
     return () => clearTimeout(t);
   }, [load, search]);
 
-  const toggle = (id: number) =>
-    setSelected((s) => {
-      const n = new Set(s);
-      n.has(id) ? n.delete(id) : n.add(id);
-      return n;
-    });
-  const toggleAll = () =>
-    setSelected((s) => (s.size === zones.length ? new Set() : new Set(zones.map((z) => z.id))));
-
-  const selectedZones = zones.filter((z) => selected.has(z.id));
-  const one = selectedZones.length === 1 ? selectedZones[0] : null;
+  const one = selectedItems.length === 1 ? selectedItems[0] : null;
 
   // Feed the split panel: name servers for the single selected zone, then the detail.
   const { setSplitData } = useDrawer();
@@ -102,10 +189,12 @@ export default function HostedZonesPage() {
         setNs(apex ? apex.value.split("\n").map((v) => v.replace(/\.$/, "")) : []);
       })
       .catch(() => active && setNs([]));
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [selectedId]);
 
-  const selectedCount = selectedZones.length;
+  const selectedCount = selectedItems.length;
   useEffect(() => {
     setSplitData({ count: selectedCount, detail: one ? <ZoneSplitDetail zone={one} ns={ns} /> : null });
     // `one` is derived from selectedId; excluded to avoid a re-render loop on its changing identity.
@@ -115,14 +204,14 @@ export default function HostedZonesPage() {
   const doDelete = async () => {
     setDeleting(true);
     try {
-      await Promise.all(selectedZones.map((z) => zoneService.remove(z.id)));
+      await Promise.all(selectedItems.map((z) => zoneService.remove(z.id)));
       notify({
         type: "success",
-        content: `Deleted ${selectedZones.length} hosted zone${selectedZones.length > 1 ? "s" : ""}.`,
+        content: `Deleted ${selectedItems.length} hosted zone${selectedItems.length > 1 ? "s" : ""}.`,
       });
       setDeleteOpen(false);
-      // reset to page 1 if current page may be empty
-      if (zones.length === selectedZones.length && page > 1) setPage((p) => p - 1);
+      // step back a page if we just emptied the last one
+      if (zones.length === selectedItems.length && page > 1) setPage((p) => p - 1);
       else load();
     } catch (e) {
       notify({ type: "error", content: apiError(e, "Failed to delete hosted zone") });
@@ -131,207 +220,187 @@ export default function HostedZonesPage() {
     }
   };
 
+  const visibleContentOptions = useMemo(
+    () => [
+      {
+        label: "Properties",
+        options: COLUMN_DEFINITIONS.map((c) => ({ id: c.id as string, label: String(c.header) })),
+      },
+    ],
+    []
+  );
+
   return (
     <AppShell breadcrumbs={[{ label: "Route 53", href: "/dashboard" }, { label: "Hosted zones" }]}>
-      <div className="px-7 pt-3" style={{ fontFamily: FONT, color: INK }}>
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-3 pb-1">
-          <h1 className="text-[24px] leading-[30px]" style={{ letterSpacing: "-0.48px" }}>
-            <span className="font-bold">Hosted zones</span> <span style={{ color: MUTED }}>({total})</span>
-          </h1>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button iconOnly aria-label="Refresh hosted zones" onClick={() => load()}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-                <path d="M15 0v5l-5-.04" strokeLinejoin="round" />
-                <path d="M15 8c0 3.87-3.13 7-7 7s-7-3.13-7-7 3.13-7 7-7c2.79 0 5.2 1.63 6.33 4" />
-              </svg>
-            </Button>
-            <Button disabled={!one} onClick={() => one && router.push(`/hosted-zones/${one.id}/records`)}>
-              View details
-            </Button>
-            <Button disabled={!one} onClick={() => one && router.push(`/hosted-zones/${one.id}/edit`)}>
-              Edit
-            </Button>
-            <Button disabled={selectedZones.length === 0} onClick={() => setDeleteOpen(true)}>
-              Delete
-            </Button>
-            <Button variant="primary" onClick={() => router.push("/hosted-zones/create")}>
-              Create hosted zone
-            </Button>
-          </div>
-        </div>
-
-        <p className="pb-3 text-[14px]" style={{ color: SECONDARY }}>
-          Automatic mode is the current search behavior optimized for best filter results.{" "}
-          <button style={{ color: LINK, textDecoration: "underline" }}>To change modes go to settings.</button>
-        </p>
-
-        {/* Filter + pagination */}
-        <div className="flex flex-wrap items-center gap-3 pb-2">
-          <div className="relative min-w-[280px] flex-1">
-            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-                <path d="m11 11 4 4M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10Z" strokeLinejoin="round" />
-              </svg>
-            </span>
-            <input
-              id="page-filter-input"
-              value={search}
-              onChange={(e) => {
-                setPage(1);
-                setSearch(e.target.value);
-              }}
-              placeholder="Filter records by property or value"
-              className="h-8 w-full rounded-lg bg-[var(--rz-surface)] pl-9 pr-3 text-[14px] italic placeholder:text-[var(--rz-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]"
-              style={{ border: "1px solid var(--rz-borderstrong)", fontStyle: search ? "normal" : "italic" }}
-            />
-          </div>
-          <div className="flex items-center gap-1" style={{ color: SECONDARY }}>
-            <button
-              aria-label="Previous page"
-              disabled={page <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="p-1 disabled:opacity-40"
-            >
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-                <path d="M11 2 5 8l6 6" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <span className="min-w-5 text-center text-[14px] font-bold">{page}</span>
-            <button
-              aria-label="Next page"
-              disabled={page >= pages}
-              onClick={() => setPage((p) => Math.min(pages, p + 1))}
-              className="p-1 disabled:opacity-40"
-            >
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-                <path d="m5 2 6 6-6 6" strokeLinejoin="round" />
-              </svg>
-            </button>
-            <button aria-label="Preferences" className="ml-1 p-1">
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
-                <path d="M6.11 1.729c.07-.42.44-.729.86-.729h2.02c.43 0 .79.31.86.729l.17.999c.05.29.24.529.5.679.06.03.11.06.17.1.25.15.56.2.84.1l.95-.35c.4-.15.85 0 1.07.38l1.01 1.747c.21.37.13.839-.2 1.108l-.78.64c-.23.189-.34.479-.33.768v.2c0 .29.11.579.33.769l.78.639c.33.27.42.739.2 1.108l-1.01 1.748c-.21.37-.66.529-1.06.38l-.95-.35a.966.966 0 0 0-.84.1c-.06.03-.11.07-.17.1-.26.14-.45.389-.5.679l-.17.998A.878.878 0 0 1 9 15H6.98a.87.87 0 0 1-.86-.729l-.17-.998a.988.988 0 0 0-.5-.68c-.06-.03-.11-.06-.17-.1a.996.996 0 0 0-.84-.1l-.95.35c-.4.15-.85 0-1.06-.38l-1.01-1.747a.873.873 0 0 1 .2-1.108l.78-.64c.23-.189.34-.479.33-.768v-.2c0-.3-.11-.579-.33-.769l-.78-.639a.861.861 0 0 1-.2-1.108l1.01-1.748c.21-.37.66-.529 1.07-.38l.95.35c.28.1.58.06.84-.1.06-.03.11-.07.17-.1.26-.14.45-.379.5-.678l.15-1Z" strokeLinejoin="round" />
-                <path d="M10 8c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2Z" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="border-collapse text-[14px]" style={{ tableLayout: "fixed", width: tableWidth + CHECKBOX_W }}>
-            <colgroup>
-              <col style={{ width: CHECKBOX_W }} />
-              {widths.map((w, i) => (
-                <col key={i} style={{ width: w }} />
-              ))}
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="px-2 py-2 text-left align-middle" style={{ borderBottom: `1px solid ${BORDER}` }}>
-                  <input
-                    type="checkbox"
-                    aria-label="Select all"
-                    checked={zones.length > 0 && selected.size === zones.length}
-                    onChange={toggleAll}
-                    className="h-3.5 w-3.5"
-                    style={{ accentColor: LINK }}
-                  />
-                </th>
-                {COLUMNS.map((c, i) => (
-                  <th
-                    key={c}
-                    className="relative px-2 py-2 text-left align-middle font-bold"
-                    style={{ color: SECONDARY, borderBottom: `1px solid ${BORDER}` }}
+      <div className="px-7 pt-3">
+        <Table<HostedZone>
+          variant="full-page"
+          items={zones}
+          columnDefinitions={COLUMN_DEFINITIONS}
+          visibleColumns={prefs.visibleContent}
+          trackBy="id"
+          resizableColumns
+          wrapLines={prefs.wrapLines}
+          loading={loading}
+          loadingText="Loading hosted zones"
+          selectionType="multi"
+          selectedItems={selectedItems}
+          onSelectionChange={({ detail }) => setSelectedItems([...detail.selectedItems])}
+          sortingColumn={sortingColumn}
+          sortingDescending={sortingDescending}
+          onSortingChange={({ detail }) => {
+            setSortingColumn(detail.sortingColumn);
+            setSortingDescending(detail.isDescending ?? false);
+            setPage(1);
+          }}
+          ariaLabels={{
+            selectionGroupLabel: "Hosted zone selection",
+            allItemsSelectionLabel: () => "Select all",
+            itemSelectionLabel: (_data, row) => `Select ${row.name}`,
+          }}
+          header={
+            <Header
+              variant="h1"
+              counter={`(${total})`}
+              description="Automatic mode is the current search behavior optimized for best filter results."
+              actions={
+                <SpaceBetween direction="horizontal" size="xs">
+                  <Button iconName="refresh" ariaLabel="Refresh hosted zones" onClick={() => load()} />
+                  <Button
+                    disabled={!one}
+                    onClick={() => one && router.push(`/hosted-zones/${one.id}/records`)}
                   >
-                    <span className="flex items-center overflow-hidden">
-                      <span className="truncate">{c}</span>
-                      <SortCaret />
-                    </span>
-                    {i < COLUMNS.length - 1 && <ResizeHandle onMouseDown={(e) => startResize(i, e)} />}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {zones.map((z) => (
-                <tr key={z.id} className="hover:bg-[var(--rz-hover)]">
-                  <td className="px-2 py-2 align-middle" style={{ borderBottom: "1px solid var(--rz-divider)" }}>
-                    <input
-                      type="checkbox"
-                      aria-label={`Select ${z.name}`}
-                      checked={selected.has(z.id)}
-                      onChange={() => toggle(z.id)}
-                      className="h-3.5 w-3.5"
-                      style={{ accentColor: LINK }}
-                    />
-                  </td>
-                  <td className="truncate px-2 py-2 align-middle" style={{ borderBottom: "1px solid var(--rz-divider)" }}>
-                    <button
-                      onClick={() => router.push(`/hosted-zones/${z.id}/records`)}
-                      className="max-w-full truncate align-bottom"
-                      title={z.name}
-                      style={{ color: LINK, textDecoration: "underline" }}
-                    >
-                      {z.name}
-                    </button>
-                  </td>
-                  <td className="truncate px-2 py-2 align-middle" style={{ borderBottom: "1px solid var(--rz-divider)" }}>{z.type}</td>
-                  <td className="truncate px-2 py-2 align-middle" style={{ borderBottom: "1px solid var(--rz-divider)" }}>Route 53</td>
-                  <td className="truncate px-2 py-2 align-middle" style={{ borderBottom: "1px solid var(--rz-divider)" }}>{z.record_count}</td>
-                  <td className="truncate px-2 py-2 align-middle" title={z.comment || undefined} style={{ borderBottom: "1px solid var(--rz-divider)", color: z.comment ? INK : MUTED }}>
-                    {z.comment || "-"}
-                  </td>
-                  <td className="truncate px-2 py-2 align-middle font-mono text-[13px]" title={z.zone_id} style={{ borderBottom: "1px solid var(--rz-divider)" }}>
-                    {z.zone_id}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {/* Empty state */}
-          {!loading && zones.length === 0 && (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <b style={{ color: MUTED }}>No hosted zones</b>
-              <p style={{ color: SECONDARY }}>
-                {search ? "No hosted zones match your filter." : "There are no hosted zones created for this account."}
-              </p>
-              {!search && (
-                <Button variant="primary" onClick={() => router.push("/hosted-zones/create")}>
-                  Create hosted zone
-                </Button>
+                    View details
+                  </Button>
+                  <Button disabled={!one} onClick={() => one && router.push(`/hosted-zones/${one.id}/edit`)}>
+                    Edit
+                  </Button>
+                  <Button disabled={selectedItems.length === 0} onClick={() => setDeleteOpen(true)}>
+                    Delete
+                  </Button>
+                  <Button variant="primary" onClick={() => router.push("/hosted-zones/create")}>
+                    Create hosted zone
+                  </Button>
+                </SpaceBetween>
+              }
+            >
+              Hosted zones
+            </Header>
+          }
+          filter={
+            <TextFilter
+              filteringText={search}
+              filteringPlaceholder="Filter records by property or value"
+              filteringAriaLabel="Filter hosted zones"
+              countText={search ? `${total} ${total === 1 ? "match" : "matches"}` : ""}
+              onChange={({ detail }) => {
+                setPage(1);
+                setSearch(detail.filteringText);
+              }}
+            />
+          }
+          pagination={
+            <Pagination
+              currentPageIndex={page}
+              pagesCount={pages}
+              onChange={({ detail }) => setPage(detail.currentPageIndex)}
+            />
+          }
+          preferences={
+            <CollectionPreferences
+              title="Preferences"
+              confirmLabel="Confirm"
+              cancelLabel="Cancel"
+              preferences={prefs}
+              onConfirm={({ detail }) => savePrefs(detail as Prefs)}
+              pageSizePreference={{
+                title: "Page size",
+                options: [
+                  { value: 10, label: "10 items" },
+                  { value: 30, label: "30 items" },
+                  { value: 50, label: "50 items" },
+                  { value: 100, label: "100 items" },
+                ],
+              }}
+              wrapLinesPreference={{
+                label: "Wrap lines",
+                description: "Check to see all the text and wrap the lines.",
+              }}
+              visibleContentPreference={{
+                title: "Select visible columns",
+                options: visibleContentOptions,
+              }}
+              customPreference={(value: SearchMode, setValue) => (
+                <FormField label="Search mode">
+                  <RadioGroup
+                    value={value ?? "automatic"}
+                    onChange={({ detail }) => setValue(detail.value as SearchMode)}
+                    items={[
+                      {
+                        value: "automatic",
+                        label: "Automatic",
+                        description:
+                          "The service chooses a filter mode based on the total number of items.",
+                      },
+                      {
+                        value: "full",
+                        label: "Full",
+                        description:
+                          "All search filters are available, but search performance might be slower.",
+                      },
+                      {
+                        value: "fast",
+                        label: "Fast",
+                        description:
+                          "Some advanced searches may not be available, but search performance will be faster.",
+                      },
+                    ]}
+                  />
+                </FormField>
               )}
-            </div>
-          )}
-          {loading && <div className="py-12 text-center" style={{ color: MUTED }}>Loading hosted zones…</div>}
-        </div>
+            />
+          }
+          empty={
+            <Box textAlign="center" padding={{ vertical: "xl" }}>
+              <SpaceBetween size="m">
+                <Box variant="strong" color="inherit">
+                  No hosted zones
+                </Box>
+                <Box variant="p" color="inherit">
+                  {search
+                    ? "No hosted zones match your filter."
+                    : "There are no hosted zones created for this account."}
+                </Box>
+                {!search && (
+                  <Button variant="primary" onClick={() => router.push("/hosted-zones/create")}>
+                    Create hosted zone
+                  </Button>
+                )}
+              </SpaceBetween>
+            </Box>
+          }
+        />
       </div>
 
       {/* Delete modal */}
       <Modal
         open={deleteOpen}
-        title={`Delete ${selectedZones.length > 1 ? `${selectedZones.length} hosted zones` : "hosted zone"}?`}
+        title={`Delete ${selectedItems.length > 1 ? `${selectedItems.length} hosted zones` : "hosted zone"}?`}
         onClose={() => setDeleteOpen(false)}
         footer={
           <>
-            <Button onClick={() => setDeleteOpen(false)} disabled={deleting}>
+            <AwsButton onClick={() => setDeleteOpen(false)} disabled={deleting}>
               Cancel
-            </Button>
-            <Button variant="primary" onClick={doDelete} disabled={deleting}>
+            </AwsButton>
+            <AwsButton variant="primary" onClick={doDelete} disabled={deleting}>
               {deleting ? "Deleting…" : "Delete"}
-            </Button>
+            </AwsButton>
           </>
         }
       >
         <p>
-          Permanently delete{" "}
-          {one ? (
-            <b>{one.name}</b>
-          ) : (
-            <b>{selectedZones.length} hosted zones</b>
-          )}
-          ? This will remove all of its DNS records. This action cannot be undone.
+          Permanently delete {one ? <b>{one.name}</b> : <b>{selectedItems.length} hosted zones</b>}? This
+          will remove all of its DNS records. This action cannot be undone.
         </p>
       </Modal>
     </AppShell>
@@ -342,8 +411,12 @@ export default function HostedZonesPage() {
 function ZoneSplitDetail({ zone, ns }: { zone: HostedZone; ns: string[] }) {
   const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
     <div className="py-3">
-      <div className="text-[14px] font-bold" style={{ color: INK }}>{label}</div>
-      <div className="text-[14px]" style={{ color: value === "-" ? MUTED : INK }}>{value}</div>
+      <div className="text-[14px] font-bold" style={{ color: INK }}>
+        {label}
+      </div>
+      <div className="text-[14px]" style={{ color: value === "-" ? MUTED : INK }}>
+        {value}
+      </div>
     </div>
   );
   return (
@@ -355,13 +428,19 @@ function ZoneSplitDetail({ zone, ns }: { zone: HostedZone; ns: string[] }) {
       <Field label="Type" value={`${zone.type} hosted zone`} />
       <Field label="Record count" value={String(zone.record_count)} />
       <div className="py-3">
-        <div className="text-[14px] font-bold" style={{ color: INK }}>Name servers</div>
+        <div className="text-[14px] font-bold" style={{ color: INK }}>
+          Name servers
+        </div>
         {ns.length > 0 ? (
           <ul className="mt-1 list-disc pl-5 text-[14px]">
-            {ns.map((n) => (<li key={n}>{n}</li>))}
+            {ns.map((n) => (
+              <li key={n}>{n}</li>
+            ))}
           </ul>
         ) : (
-          <div className="text-[14px]" style={{ color: MUTED }}>-</div>
+          <div className="text-[14px]" style={{ color: MUTED }}>
+            -
+          </div>
         )}
       </div>
     </div>

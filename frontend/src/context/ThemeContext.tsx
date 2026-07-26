@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { applyMode, Mode } from "@cloudscape-design/global-styles";
 
 type Theme = "light" | "dark";
 
@@ -24,6 +25,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
+    // Cloudscape components read their own root class rather than ours, so the
+    // theme has to be mirrored onto them or they'd stay light in dark mode.
+    applyMode(theme === "dark" ? Mode.Dark : Mode.Light);
     localStorage.setItem(STORAGE_KEY, theme);
   }, [theme]);
 

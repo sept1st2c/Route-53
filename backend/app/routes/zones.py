@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, func
+from sqlalchemy import or_, func, select
 from app.database import get_db
 from app.models import HostedZone, DNSRecord
 from app.schemas import ZoneCreate, ZoneUpdate, ZoneOut, ZoneListResponse
@@ -51,12 +51,25 @@ def seed_default_ns_soa(db: Session, zone: HostedZone):
     db.commit()
 
 
+# Columns the hosted-zone list can be sorted by. `record_count` is a computed
+# property rather than a column, so it sorts via a correlated COUNT subquery.
+SORTABLE_ZONE_COLUMNS = {
+    "name": HostedZone.name,
+    "type": HostedZone.type,
+    "comment": HostedZone.comment,
+    "zone_id": HostedZone.zone_id,
+    "created_at": HostedZone.created_at,
+}
+
+
 @router.get("", response_model=ZoneListResponse)
 def list_zones(
     search: str = Query(default="", description="Search by zone name"),
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
     type: str = Query(default="", description="Filter by Public or Private"),
+    sort_by: str = Query(default="created_at", description="Column to sort by"),
+    sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -70,7 +83,19 @@ def list_zones(
 
     total = query.count()
     pages = math.ceil(total / limit) if total > 0 else 1
-    zones = query.order_by(HostedZone.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+
+    if sort_by == "record_count":
+        sort_column = (
+            select(func.count(DNSRecord.id))
+            .where(DNSRecord.zone_id == HostedZone.id)
+            .correlate(HostedZone)
+            .scalar_subquery()
+        )
+    else:
+        sort_column = SORTABLE_ZONE_COLUMNS.get(sort_by, HostedZone.created_at)
+
+    ordering = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+    zones = query.order_by(ordering).offset((page - 1) * limit).limit(limit).all()
 
     return ZoneListResponse(
         items=[ZoneOut.from_orm_with_count(z) for z in zones],

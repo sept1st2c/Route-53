@@ -33,6 +33,8 @@ export interface ZoneQuery {
   type?: "" | "Public" | "Private";
   page?: number;
   limit?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
 }
 
 export const zoneService = {
@@ -43,6 +45,8 @@ export const zoneService = {
         type: q.type || "",
         page: q.page || 1,
         limit: q.limit || 10,
+        sort_by: q.sortBy || "created_at",
+        sort_order: q.sortOrder || "desc",
       },
     });
     return data;
