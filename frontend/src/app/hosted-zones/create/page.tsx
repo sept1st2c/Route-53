@@ -1,77 +1,157 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Alert from "@cloudscape-design/components/alert";
+import AttributeEditor from "@cloudscape-design/components/attribute-editor";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import Container from "@cloudscape-design/components/container";
+import Form from "@cloudscape-design/components/form";
+import FormField from "@cloudscape-design/components/form-field";
+import Grid from "@cloudscape-design/components/grid";
+import Header from "@cloudscape-design/components/header";
+import Input from "@cloudscape-design/components/input";
+import Link from "@cloudscape-design/components/link";
+import Select, { type SelectProps } from "@cloudscape-design/components/select";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import Textarea from "@cloudscape-design/components/textarea";
+import Tiles from "@cloudscape-design/components/tiles";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
-import { Container, InfoLink } from "@/components/ui/Container";
-import { TagEditor } from "@/components/ui/TagEditor";
+import { TagEditor, type Tag } from "@/components/ui/TagEditor";
 import { zoneService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
 import type { ZoneType } from "@/types";
 
-const INK = "var(--rz-ink)";
-const MUTED = "var(--rz-muted)";
-const LINK = "var(--rz-link)";
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
+const INFO = <Link variant="info">Info</Link>;
 
-function FieldLabel({ label, optional, info }: { label: string; optional?: boolean; info?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <label className="text-[14px] font-bold" style={{ color: INK }}>
-        {label}
-        {optional && (
-          <i className="font-normal" style={{ color: MUTED }}>
-            {" "}
-            - <span className="italic">optional</span>
-          </i>
-        )}
-      </label>
-      {info && <InfoLink />}
-    </div>
-  );
+// The constraint string the Route 53 console prints under Domain name, character for character.
+const VALID_CHARACTERS =
+  "Valid characters: a-z, 0-9, ! \" # $ % & ' ( ) * + , - / : ; < = > ? @ [ \\ ] ^ _ ` { | } . ~";
+
+const MAX_DESCRIPTION = 256;
+
+/** Printable ASCII Route 53 accepts in hosted zone names (DNS domain name format). */
+const LEGAL_CHARACTERS = /^[a-zA-Z0-9!"#$%&'()*+,\-/:;<=>?@[\\\]^_`{|}~.]+$/;
+
+// Route 53 measures domain names in bytes, not code units.
+const byteLength = (value: string) => new TextEncoder().encode(value).length;
+
+function validateDomainName(raw: string): string | undefined {
+  const value = raw.trim();
+  if (!value) return "Enter a domain name.";
+  if (!LEGAL_CHARACTERS.test(value)) {
+    return "The domain name contains characters that Route 53 doesn't allow. Specify other characters as escape codes in the format \\ followed by a three-digit octal code, or convert an internationalized domain name to Punycode.";
+  }
+  if (byteLength(value) > 255) {
+    return "The total length of a domain name can't exceed 255 bytes, including the dots.";
+  }
+  // A single trailing dot is the DNS root separator, not an empty label.
+  const labels = value.replace(/\.$/, "").split(".");
+  if (labels.some((label) => label.length === 0)) {
+    return "The domain name can't contain an empty label. Remove any leading or consecutive dots.";
+  }
+  if (labels.some((label) => byteLength(label) > 63)) {
+    return "Each label in a domain name can be up to 63 bytes long.";
+  }
+  if (labels.length < 2) {
+    return "Route 53 doesn't support hosting top-level domains such as .com. Enter a domain or subdomain name, for example example.com.";
+  }
+  if (labels[0].includes("*")) {
+    return "You can't include an * in the leftmost label of a hosted zone name.";
+  }
+  return undefined;
 }
 
-function TypeTile({
-  selected,
-  title,
-  desc,
-  onClick,
+function validateDescription(value: string): string | undefined {
+  return value.length > MAX_DESCRIPTION
+    ? `The description can have up to ${MAX_DESCRIPTION} characters.`
+    : undefined;
+}
+
+const REGIONS: SelectProps.Option[] = [
+  { value: "us-east-1", label: "us-east-1", description: "US East (N. Virginia)" },
+  { value: "us-east-2", label: "us-east-2", description: "US East (Ohio)" },
+  { value: "us-west-1", label: "us-west-1", description: "US West (N. California)" },
+  { value: "us-west-2", label: "us-west-2", description: "US West (Oregon)" },
+  { value: "af-south-1", label: "af-south-1", description: "Africa (Cape Town)" },
+  { value: "ap-east-1", label: "ap-east-1", description: "Asia Pacific (Hong Kong)" },
+  { value: "ap-south-1", label: "ap-south-1", description: "Asia Pacific (Mumbai)" },
+  { value: "ap-northeast-3", label: "ap-northeast-3", description: "Asia Pacific (Osaka)" },
+  { value: "ap-northeast-2", label: "ap-northeast-2", description: "Asia Pacific (Seoul)" },
+  { value: "ap-southeast-1", label: "ap-southeast-1", description: "Asia Pacific (Singapore)" },
+  { value: "ap-southeast-2", label: "ap-southeast-2", description: "Asia Pacific (Sydney)" },
+  { value: "ap-northeast-1", label: "ap-northeast-1", description: "Asia Pacific (Tokyo)" },
+  { value: "ca-central-1", label: "ca-central-1", description: "Canada (Central)" },
+  { value: "eu-central-1", label: "eu-central-1", description: "Europe (Frankfurt)" },
+  { value: "eu-west-1", label: "eu-west-1", description: "Europe (Ireland)" },
+  { value: "eu-west-2", label: "eu-west-2", description: "Europe (London)" },
+  { value: "eu-south-1", label: "eu-south-1", description: "Europe (Milan)" },
+  { value: "eu-west-3", label: "eu-west-3", description: "Europe (Paris)" },
+  { value: "eu-north-1", label: "eu-north-1", description: "Europe (Stockholm)" },
+  { value: "me-south-1", label: "me-south-1", description: "Middle East (Bahrain)" },
+  { value: "sa-east-1", label: "sa-east-1", description: "South America (São Paulo)" },
+];
+
+/**
+ * The backend has no VPC resource, so the region-filtered VPC inventory the console offers is
+ * derived deterministically from the region code — the same region always lists the same VPCs.
+ */
+function vpcsForRegion(region: string): SelectProps.Option[] {
+  let hash = 7;
+  for (const char of region) hash = (hash * 33 + char.charCodeAt(0)) % 0xffffffff;
+  const count = 2 + (hash % 2);
+  return Array.from({ length: count }, (_, i) => {
+    const id = `vpc-${((hash * (i + 11)) % 0xffffffffffff).toString(16).padStart(12, "0")}`;
+    const cidr = i === 0 ? "172.31.0.0/16" : `10.${(hash + i * 17) % 240}.0.0/16`;
+    return { value: id, label: `${id} (${cidr})`, description: i === 0 ? "Default VPC" : undefined };
+  });
+}
+
+type VpcRow = { region: string | null; vpcId: string | null };
+
+const emptyRow = (): VpcRow => ({ region: null, vpcId: null });
+
+/** Region select for one VPC row — changing the region invalidates the chosen VPC. */
+function RegionSelect({
+  row,
+  onChange,
 }: {
-  selected: boolean;
-  title: string;
-  desc: string;
-  onClick: () => void;
+  row: VpcRow;
+  onChange: (next: VpcRow) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex flex-1 items-start gap-2 rounded-lg px-3 pb-3 pt-2 text-left"
-      style={{
-        backgroundColor: selected ? "var(--rz-selected)" : "var(--rz-surface)",
-        border: `1px solid ${selected ? LINK : "var(--rz-borderstrong)"}`,
-        boxShadow: selected ? "inset 0 0 0 1px var(--rz-link)" : "none",
-      }}
-    >
-      <span className="mt-0.5">
-        <svg viewBox="0 0 100 100" width="16" height="16" aria-hidden>
-          <circle cx="50" cy="50" r="46" fill="none" stroke={selected ? LINK : "var(--rz-borderstrong)"} strokeWidth="6.25" />
-          {selected && <circle cx="50" cy="50" r="22" fill={LINK} />}
-        </svg>
-      </span>
-      <span>
-        <span className="block text-[14px] leading-5" style={{ color: INK }}>
-          {title}
-        </span>
-        <span className="block text-[12px] leading-4" style={{ color: MUTED }}>
-          {desc}
-        </span>
-      </span>
-    </button>
+    <Select
+      selectedOption={REGIONS.find((r) => r.value === row.region) ?? null}
+      options={REGIONS}
+      placeholder="Choose region"
+      onChange={({ detail }) => onChange({ region: detail.selectedOption.value ?? null, vpcId: null })}
+    />
   );
 }
+
+function VpcSelect({ row, onChange }: { row: VpcRow; onChange: (next: VpcRow) => void }) {
+  const options = useMemo(() => (row.region ? vpcsForRegion(row.region) : []), [row.region]);
+  return (
+    <Select
+      selectedOption={options.find((o) => o.value === row.vpcId) ?? null}
+      options={options}
+      placeholder="Choose VPC"
+      filteringType="auto"
+      disabled={!row.region}
+      empty="Choose a region to list its VPCs"
+      onChange={({ detail }) => onChange({ ...row, vpcId: detail.selectedOption.value ?? null })}
+    />
+  );
+}
+
+type Errors = {
+  name?: string;
+  description?: string;
+  vpcs?: Record<number, { region?: string; vpcId?: string }>;
+  vpcList?: string;
+};
 
 export default function CreateHostedZonePage() {
   const router = useRouter();
@@ -80,28 +160,83 @@ export default function CreateHostedZonePage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<ZoneType>("Public");
-  const [error, setError] = useState("");
+  const [vpcs, setVpcs] = useState<VpcRow[]>([emptyRow()]);
+  const [tags, setTags] = useState<readonly Tag[]>([]);
+  const [tagsValid, setTagsValid] = useState(true);
+  const [errors, setErrors] = useState<Errors>({});
+  const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  const submit = async () => {
-    setError("");
-    if (!name.trim()) {
-      setError("Enter a domain name.");
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const zone = await zoneService.create({ name: name.trim(), type, comment: description.trim() || null });
-      notify({ type: "success", content: `Hosted zone ${zone.name} created successfully.` });
-      router.push(`/hosted-zones/${zone.id}/records`);
-    } catch (e) {
-      setError(apiError(e, "Failed to create hosted zone"));
-      setSubmitting(false);
+  // Errors appear on submit, then track the field live so they clear as soon as it is fixed.
+  const revalidate = (patch: Errors) => setErrors((prev) => ({ ...prev, ...patch }));
+
+  const setVpcRow = (index: number, next: VpcRow) => {
+    setVpcs((prev) => prev.map((row, i) => (i === index ? next : row)));
+    if (errors.vpcs?.[index]) {
+      revalidate({
+        vpcs: {
+          ...errors.vpcs,
+          [index]: {
+            region: next.region ? undefined : "Choose a region.",
+            vpcId: next.vpcId ? undefined : "Choose a VPC.",
+          },
+        },
+      });
     }
   };
 
-  const inputCls =
-    "mt-1 block w-full max-w-[66%] rounded-lg bg-[var(--rz-surface)] px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]";
+  const validateAll = (): Errors => {
+    const next: Errors = {
+      name: validateDomainName(name),
+      description: validateDescription(description),
+    };
+    if (type === "Private") {
+      if (vpcs.length === 0) {
+        next.vpcList = "Associate at least one VPC with the private hosted zone.";
+      } else {
+        const rows: Record<number, { region?: string; vpcId?: string }> = {};
+        vpcs.forEach((row, i) => {
+          rows[i] = {
+            region: row.region ? undefined : "Choose a region.",
+            vpcId: row.vpcId ? undefined : "Choose a VPC.",
+          };
+        });
+        next.vpcs = rows;
+      }
+    }
+    return next;
+  };
+
+  const submit = async () => {
+    setFormError("");
+    const found = validateAll();
+    setErrors(found);
+    const hasFieldError =
+      !!found.name ||
+      !!found.description ||
+      !!found.vpcList ||
+      Object.values(found.vpcs ?? {}).some((row) => row.region || row.vpcId);
+    if (hasFieldError) return;
+    if (!tagsValid) {
+      setFormError("Resolve the errors in the Tags section before you create the hosted zone.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // VPC associations and tags are presentation-only: the API accepts name/type/comment only.
+      const zone = await zoneService.create({
+        name: name.trim(),
+        type,
+        comment: description.trim() || null,
+      });
+      notify({ type: "success", content: `Hosted zone ${zone.name} created successfully.` });
+      router.push(`/hosted-zones/${zone.id}/records`);
+    } catch (e) {
+      setFormError(apiError(e, "Failed to create hosted zone"));
+      setSubmitting(false);
+    }
+  };
 
   return (
     <AppShell
@@ -110,152 +245,200 @@ export default function CreateHostedZonePage() {
         { label: "Hosted zones", href: "/hosted-zones" },
         { label: "Create hosted zone" },
       ]}
+      contentType="form"
     >
-      <div style={{ fontFamily: FONT, color: INK }}>
-        {/* Title */}
-        <div className="mb-3 flex items-center gap-2">
-          <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>
-            Create hosted zone
-          </h1>
-          <InfoLink />
-        </div>
-
-        <div className="flex flex-col gap-6 pb-6">
-          {/* Configuration */}
-          <Container
-            title="Hosted zone configuration"
-            description="A hosted zone is a container that holds information about how you want to route traffic for a domain, such as example.com, and its subdomains."
-          >
-            <div className="flex flex-col gap-5">
-              {/* Domain name */}
-              <div>
-                <FieldLabel label="Domain name" info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  This is the name of the domain that you want to route traffic for.
-                </p>
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="example.com"
-                  className={inputCls}
-                  style={{ height: 32, border: "1px solid var(--rz-borderstrong)" }}
-                />
-                <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>
-                  {error ? (
-                    <span style={{ color: "#d91515" }}>{error}</span>
-                  ) : (
-                    "Valid characters: a-z, 0-9, ! \" # $ % & ' ( ) * + , - / : ; < = > ? @ [ \\ ] ^ _ ` { | } . ~"
-                  )}
-                </p>
-              </div>
-
-              {/* Description */}
-              <div>
-                <FieldLabel label="Description" optional info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  This value lets you distinguish hosted zones that have the same name.
-                </p>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value.slice(0, 256))}
-                  placeholder="The hosted zone is used for..."
-                  rows={3}
-                  className={inputCls + " resize-y py-1.5"}
-                  style={{ border: "1px solid var(--rz-borderstrong)", minHeight: 72 }}
-                />
-                <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>
-                  The description can have up to 256 characters. {description.length}/256
-                </p>
-              </div>
-
-              {/* Type */}
-              <div>
-                <FieldLabel label="Type" info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  The type indicates whether you want to route traffic on the internet or in an Amazon VPC.
-                </p>
-                <div className="mt-2 flex max-w-[66%] gap-3">
-                  <TypeTile
-                    selected={type === "Public"}
-                    title="Public hosted zone"
-                    desc="A public hosted zone determines how traffic is routed on the internet."
-                    onClick={() => setType("Public")}
-                  />
-                  <TypeTile
-                    selected={type === "Private"}
-                    title="Private hosted zone"
-                    desc="A private hosted zone determines how traffic is routed within an Amazon VPC."
-                    onClick={() => setType("Private")}
-                  />
-                </div>
-              </div>
-            </div>
-          </Container>
-
-          {/* VPCs — only for Private (cosmetic) */}
-          {type === "Private" && (
-            <Container
-              title="VPCs to associate with the hosted zone"
-              info
-              description="To use this hosted zone to resolve DNS queries for one or more VPCs, choose the VPCs. To associate a VPC created using a different AWS account, you must use a programmatic method, such as the AWS CLI."
-            >
-              <div
-                className="mb-4 flex items-start gap-2 rounded-lg px-3 py-2 text-[14px]"
-                style={{ backgroundColor: "var(--rz-selected)", border: "1px solid #b3d7f5", color: INK }}
+      <form onSubmit={(e) => e.preventDefault()}>
+        <Form
+          header={
+            <Header variant="h1" info={INFO}>
+              Create hosted zone
+            </Header>
+          }
+          errorText={formError || undefined}
+          errorIconAriaLabel="Error"
+          actions={
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button
+                variant="link"
+                formAction="none"
+                disabled={submitting}
+                onClick={() => router.push("/hosted-zones")}
               >
-                <span style={{ color: LINK }}>ⓘ</span>
-                <span>
-                  For each VPC that you associate with a private hosted zone, you must set the Amazon VPC settings{" "}
-                  <span style={{ color: LINK, textDecoration: "underline" }}>enableDnsHostnames and enableDnsSupport</span> to true.
-                </span>
-              </div>
-              <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-[240px] flex-1">
-                  <FieldLabel label="Region" info />
-                  <select
-                    className="mt-1 h-8 w-full rounded-lg bg-[var(--rz-surface)] px-3 text-[14px]"
-                    style={{ border: "1px solid var(--rz-borderstrong)", color: MUTED }}
-                    defaultValue=""
+                Cancel
+              </Button>
+              <Button variant="primary" loading={submitting} onClick={submit}>
+                Create hosted zone
+              </Button>
+            </SpaceBetween>
+          }
+        >
+          <SpaceBetween size="l">
+            <Container
+              header={
+                <Header
+                  variant="h2"
+                  description="A hosted zone is a container that holds information about how you want to route traffic for a domain, such as example.com, and its subdomains."
+                >
+                  Hosted zone configuration
+                </Header>
+              }
+            >
+              <Grid gridDefinition={[{ colspan: { default: 12, s: 8 } }]}>
+                <SpaceBetween size="l">
+                  <FormField
+                    label="Domain name"
+                    info={INFO}
+                    description="This is the name of the domain that you want to route traffic for."
+                    constraintText={VALID_CHARACTERS}
+                    errorText={errors.name}
                   >
-                    <option value="" disabled>
-                      Choose region
-                    </option>
-                    <option>us-east-1</option>
-                    <option>eu-north-1</option>
-                  </select>
-                </div>
-                <div className="min-w-[240px] flex-1">
-                  <FieldLabel label="VPC ID" info />
-                  <input
-                    placeholder="Choose VPC"
-                    className="mt-1 h-8 w-full rounded-lg bg-[var(--rz-surface)] px-3 text-[14px]"
-                    style={{ border: "1px solid var(--rz-borderstrong)" }}
-                  />
-                </div>
-                <Button>Remove VPC</Button>
-              </div>
-              <div className="mt-3">
-                <Button>Add VPC</Button>
-              </div>
+                    <Input
+                      value={name}
+                      placeholder="example.com"
+                      onChange={({ detail }) => {
+                        setName(detail.value);
+                        if (errors.name) revalidate({ name: validateDomainName(detail.value) });
+                      }}
+                    />
+                  </FormField>
+
+                  <FormField
+                    label={
+                      <span>
+                        Description <i>- optional</i>
+                      </span>
+                    }
+                    info={INFO}
+                    description="This value lets you distinguish hosted zones that have the same name."
+                    constraintText={`The description can have up to ${MAX_DESCRIPTION} characters. ${description.length}/${MAX_DESCRIPTION}`}
+                    errorText={errors.description}
+                  >
+                    <Textarea
+                      value={description}
+                      placeholder="The hosted zone is used for..."
+                      rows={3}
+                      onChange={({ detail }) => {
+                        setDescription(detail.value);
+                        if (errors.description) {
+                          revalidate({ description: validateDescription(detail.value) });
+                        }
+                      }}
+                    />
+                  </FormField>
+
+                  <FormField
+                    label="Type"
+                    info={INFO}
+                    description="The type indicates whether you want to route traffic on the internet or in an Amazon VPC."
+                  >
+                    <Tiles
+                      columns={2}
+                      value={type}
+                      onChange={({ detail }) => {
+                        setType(detail.value as ZoneType);
+                        setErrors((prev) => ({ ...prev, vpcs: undefined, vpcList: undefined }));
+                      }}
+                      items={[
+                        {
+                          value: "Public",
+                          label: "Public hosted zone",
+                          description: "A public hosted zone determines how traffic is routed on the internet.",
+                        },
+                        {
+                          value: "Private",
+                          label: "Private hosted zone",
+                          description:
+                            "A private hosted zone determines how traffic is routed within an Amazon VPC.",
+                        },
+                      ]}
+                    />
+                  </FormField>
+                </SpaceBetween>
+              </Grid>
             </Container>
-          )}
 
-          {/* Tags (interactive, client-side only) */}
-          <Container title="Tags" info description="Apply tags to hosted zones to help organize and identify them.">
-            <TagEditor />
-          </Container>
-        </div>
+            {type === "Private" && (
+              <Container
+                header={
+                  <Header
+                    variant="h2"
+                    info={INFO}
+                    description="To use this hosted zone to resolve DNS queries for one or more VPCs, choose the VPCs. To associate a VPC with a hosted zone when the VPC was created using a different AWS account, you must use a programmatic method, such as the AWS CLI."
+                  >
+                    VPCs to associate with the hosted zone
+                  </Header>
+                }
+              >
+                <SpaceBetween size="l">
+                  <Alert statusIconAriaLabel="Info" dismissible>
+                    For each VPC that you associate with a private hosted zone, you must set the Amazon VPC
+                    settings{" "}
+                    <Link
+                      external
+                      href="https://docs.aws.amazon.com/vpc/latest/userguide/vpc-dns.html#vpc-dns-updating"
+                    >
+                      enableDnsHostnames and enableDnsSupport
+                    </Link>{" "}
+                    to true.
+                  </Alert>
 
-        {/* Footer actions */}
-        <div className="flex justify-end gap-3 pb-6">
-          <Button variant="link" onClick={() => router.push("/hosted-zones")} disabled={submitting}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={submit} disabled={submitting}>
-            {submitting ? "Creating…" : "Create hosted zone"}
-          </Button>
-        </div>
-      </div>
+                  {/* FormField only for its error slot — AttributeEditor has no list-level error. */}
+                  <FormField errorText={errors.vpcList}>
+                    <AttributeEditor<VpcRow>
+                      items={vpcs}
+                      addButtonText="Add VPC"
+                      removeButtonText="Remove VPC"
+                      removeButtonAriaLabel={(row) => `Remove VPC ${row.vpcId ?? ""}`.trim()}
+                      empty={<Box color="text-status-inactive">No VPCs associated with this hosted zone.</Box>}
+                      definition={[
+                        {
+                          label: "Region",
+                          info: INFO,
+                          errorText: (_row, i) => errors.vpcs?.[i]?.region,
+                          control: (row, i) => (
+                            <RegionSelect row={row} onChange={(next) => setVpcRow(i, next)} />
+                          ),
+                        },
+                        {
+                          label: "VPC ID",
+                          info: INFO,
+                          errorText: (_row, i) => errors.vpcs?.[i]?.vpcId,
+                          control: (row, i) => (
+                            <VpcSelect row={row} onChange={(next) => setVpcRow(i, next)} />
+                          ),
+                        },
+                      ]}
+                      onAddButtonClick={() => setVpcs((prev) => [...prev, emptyRow()])}
+                      onRemoveButtonClick={({ detail }) => {
+                        setVpcs((prev) => prev.filter((_, i) => i !== detail.itemIndex));
+                        setErrors((prev) => ({ ...prev, vpcs: undefined, vpcList: undefined }));
+                      }}
+                      i18nStrings={{ errorIconAriaLabel: "Error", itemRemovedAriaLive: "VPC removed" }}
+                    />
+                  </FormField>
+                </SpaceBetween>
+              </Container>
+            )}
+
+            <Container
+              header={
+                <Header variant="h2" info={INFO} description="Apply tags to hosted zones to help organize and identify them.">
+                  Tags
+                </Header>
+              }
+            >
+              <TagEditor
+                tags={tags}
+                onChange={(next, valid) => {
+                  setTags(next);
+                  setTagsValid(valid);
+                  if (valid) setFormError("");
+                }}
+              />
+            </Container>
+          </SpaceBetween>
+        </Form>
+      </form>
     </AppShell>
   );
 }

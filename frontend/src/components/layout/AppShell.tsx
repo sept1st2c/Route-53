@@ -11,7 +11,7 @@ import Box from "@cloudscape-design/components/box";
 import { TopNav } from "./TopNav";
 import { ConsoleSideNav } from "./ConsoleSideNav";
 import { ConsoleFooter } from "./ConsoleFooter";
-import { HelpContent } from "./Drawers";
+import { HelpContent, ToolsContent } from "./Drawers";
 import { Flashbar } from "@/components/ui/Flashbar";
 import { useAuth } from "@/context/AuthContext";
 import { useDrawer, type SplitData } from "@/context/DrawerContext";
@@ -72,7 +72,7 @@ export function AppShell({
   const { user, loading } = useAuth();
   const router = useRouter();
   const [navOpen, setNavOpen] = useState(true);
-  const [toolsOpen, setToolsOpen] = useState(false);
+  const [activeDrawerId, setActiveDrawerId] = useState<string | null>(null);
   const { splitOpen, setSplitOpen, splitPosition, setSplitPosition, splitData } = useDrawer();
 
   useEffect(() => {
@@ -109,13 +109,40 @@ export function AppShell({
             }}
           />
         }
-        tools={
-          <HelpPanel header={<h2>Hosted zone details</h2>}>
-            <HelpContent />
-          </HelpPanel>
-        }
-        toolsOpen={toolsOpen}
-        onToolsChange={({ detail }) => setToolsOpen(detail.open)}
+        // The reference console exposes the Info panel and Operational
+        // troubleshooting as two separately-triggered right-side drawers.
+        drawers={[
+          {
+            id: "info",
+            ariaLabels: {
+              drawerName: "Hosted zone details",
+              closeButton: "Close help panel",
+              triggerButton: "Open help panel",
+            },
+            trigger: { iconName: "status-info" },
+            content: (
+              <HelpPanel header={<h2>Hosted zone details</h2>}>
+                <HelpContent />
+              </HelpPanel>
+            ),
+          },
+          {
+            id: "troubleshooting",
+            ariaLabels: {
+              drawerName: "Operational troubleshooting",
+              closeButton: "Close operational troubleshooting",
+              triggerButton: "Open operational troubleshooting",
+            },
+            trigger: { iconName: "bug" },
+            content: (
+              <HelpPanel header={<h2>Operational troubleshooting</h2>}>
+                <ToolsContent />
+              </HelpPanel>
+            ),
+          },
+        ]}
+        activeDrawerId={activeDrawerId}
+        onDrawerChange={({ detail }) => setActiveDrawerId(detail.activeDrawerId)}
         splitPanel={
           splitPanel ? (
             <SplitPanel header={splitPanelHeader(splitData)} i18nStrings={SPLIT_PANEL_I18N}>

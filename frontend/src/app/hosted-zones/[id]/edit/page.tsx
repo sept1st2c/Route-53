@@ -2,33 +2,36 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import Container from "@cloudscape-design/components/container";
+import Form from "@cloudscape-design/components/form";
+import FormField from "@cloudscape-design/components/form-field";
+import Grid from "@cloudscape-design/components/grid";
+import Header from "@cloudscape-design/components/header";
+import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
+import Link from "@cloudscape-design/components/link";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import Spinner from "@cloudscape-design/components/spinner";
+import Textarea from "@cloudscape-design/components/textarea";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
-import { Container, InfoLink } from "@/components/ui/Container";
-import { TagEditor } from "@/components/ui/TagEditor";
+import { TagEditor, type Tag } from "@/components/ui/TagEditor";
 import { zoneService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
 import type { HostedZone } from "@/types";
 
-const INK = "var(--rz-ink)";
-const MUTED = "var(--rz-muted)";
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
+const INFO = <Link variant="info">Info</Link>;
+
+const MAX_DESCRIPTION = 256;
 
 // AWS shows the zone name without its trailing dot in titles & breadcrumbs.
 const display = (name: string) => name.replace(/\.$/, "");
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-[14px] font-bold" style={{ color: INK }}>
-        {label}
-      </div>
-      <div className="mt-0.5 text-[14px]" style={{ color: INK }}>
-        {value}
-      </div>
-    </div>
-  );
+function validateDescription(value: string): string | undefined {
+  return value.length > MAX_DESCRIPTION
+    ? `The description can have up to ${MAX_DESCRIPTION} characters.`
+    : undefined;
 }
 
 export default function EditHostedZonePage() {
@@ -39,6 +42,10 @@ export default function EditHostedZonePage() {
 
   const [zone, setZone] = useState<HostedZone | null>(null);
   const [description, setDescription] = useState("");
+  const [descriptionError, setDescriptionError] = useState<string | undefined>();
+  const [tags, setTags] = useState<readonly Tag[]>([]);
+  const [tagsValid, setTagsValid] = useState(true);
+  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -58,6 +65,15 @@ export default function EditHostedZonePage() {
   const recordsHref = `/hosted-zones/${zoneId}/records`;
 
   const save = async () => {
+    setFormError("");
+    const invalid = validateDescription(description);
+    setDescriptionError(invalid);
+    if (invalid) return;
+    if (!tagsValid) {
+      setFormError("Resolve the errors in the Tags section before you save changes.");
+      return;
+    }
+
     setSaving(true);
     try {
       // Send "" (not null) so clearing the description actually persists — the backend
@@ -81,82 +97,110 @@ export default function EditHostedZonePage() {
         { label: name || "…", href: recordsHref },
         { label: "Edit" },
       ]}
+      contentType="form"
     >
-      <div style={{ fontFamily: FONT, color: INK }}>
-        {/* Title */}
-        <div className="mb-4 flex items-center gap-2">
-          <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>
-            Edit {name}
-          </h1>
-          <InfoLink />
-        </div>
-
-        {!zone ? (
-          <div className="py-12 text-[14px]" style={{ color: MUTED }}>
-            Loading…
-          </div>
-        ) : (
-          <>
-            <div className="flex flex-col gap-6 pb-6">
-              {/* Edit hosted zone */}
+      {!zone ? (
+        <Box textAlign="center" padding={{ vertical: "xxl" }}>
+          <Spinner size="large" />
+          <Box variant="p" color="text-status-inactive" padding={{ top: "s" }}>
+            Loading hosted zone
+          </Box>
+        </Box>
+      ) : (
+        <form onSubmit={(e) => e.preventDefault()}>
+          <Form
+            header={
+              <Header variant="h1" info={INFO}>
+                Edit {name}
+              </Header>
+            }
+            errorText={formError || undefined}
+            errorIconAriaLabel="Error"
+            actions={
+              <SpaceBetween direction="horizontal" size="xs">
+                <Button
+                  variant="link"
+                  formAction="none"
+                  disabled={saving}
+                  onClick={() => router.push(recordsHref)}
+                >
+                  Cancel
+                </Button>
+                <Button variant="primary" loading={saving} onClick={save}>
+                  Save changes
+                </Button>
+              </SpaceBetween>
+            }
+          >
+            <SpaceBetween size="l">
               <Container
-                title="Edit hosted zone"
-                description="A hosted zone is a container that holds information about how you want to route traffic for a domain, such as example.com, and its subdomains."
+                header={
+                  <Header
+                    variant="h2"
+                    description="A hosted zone is a container that holds information about how you want to route traffic for a domain, such as example.com, and its subdomains."
+                  >
+                    Edit hosted zone
+                  </Header>
+                }
               >
-                <div className="flex flex-col gap-5">
-                  <ReadOnlyField label="Domain name" value={name} />
-                  <ReadOnlyField label="Hosted zone ID" value={zone.zone_id} />
-                  <ReadOnlyField label="Record count" value={String(zone.record_count)} />
-                  <ReadOnlyField label="Type" value={`${zone.type} hosted zone`} />
-
-                  {/* Description (editable) */}
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <label className="text-[14px] font-bold" style={{ color: INK }}>
-                        Description
-                        <i className="font-normal" style={{ color: MUTED }}>
-                          {" "}
-                          - <span className="italic">optional</span>
-                        </i>
-                      </label>
-                      <InfoLink />
-                    </div>
-                    <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                      This value lets you distinguish hosted zones that have the same name.
-                    </p>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value.slice(0, 256))}
-                      placeholder="The hosted zone is used for..."
-                      rows={3}
-                      className="mt-1 block w-full max-w-[66%] resize-y rounded-lg bg-[var(--rz-surface)] px-3 py-1.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]"
-                      style={{ border: "1px solid var(--rz-borderstrong)", minHeight: 72 }}
+                <Grid gridDefinition={[{ colspan: { default: 12, s: 8 } }]}>
+                  <SpaceBetween size="l">
+                    {/* Everything except the description is fixed once the zone exists. */}
+                    <KeyValuePairs
+                      columns={1}
+                      items={[
+                        { label: "Domain name", value: name },
+                        { label: "Hosted zone ID", value: zone.zone_id },
+                        { label: "Record count", value: String(zone.record_count) },
+                        { label: "Type", value: `${zone.type} hosted zone` },
+                      ]}
                     />
-                    <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>
-                      The description can have up to 256 characters. {description.length}/256
-                    </p>
-                  </div>
-                </div>
+
+                    <FormField
+                      label={
+                        <span>
+                          Description <i>- optional</i>
+                        </span>
+                      }
+                      info={INFO}
+                      description="This value lets you distinguish hosted zones that have the same name."
+                      constraintText={`The description can have up to ${MAX_DESCRIPTION} characters. ${description.length}/${MAX_DESCRIPTION}`}
+                      errorText={descriptionError}
+                    >
+                      <Textarea
+                        value={description}
+                        placeholder="The hosted zone is used for..."
+                        rows={3}
+                        onChange={({ detail }) => {
+                          setDescription(detail.value);
+                          if (descriptionError) setDescriptionError(validateDescription(detail.value));
+                        }}
+                      />
+                    </FormField>
+                  </SpaceBetween>
+                </Grid>
               </Container>
 
-              {/* Tags (interactive, client-side only) */}
-              <Container title="Tags" info description="Apply tags to hosted zones to help organize and identify them.">
-                <TagEditor />
+              <Container
+                header={
+                  <Header variant="h2" info={INFO} description="Apply tags to hosted zones to help organize and identify them.">
+                    Tags
+                  </Header>
+                }
+              >
+                <TagEditor
+                  tags={tags}
+                  onChange={(next, valid) => {
+                    setTags(next);
+                    setTagsValid(valid);
+                    if (valid) setFormError("");
+                  }}
+                />
               </Container>
-            </div>
-
-            {/* Footer actions */}
-            <div className="flex justify-end gap-3 pb-6">
-              <Button variant="link" onClick={() => router.push(recordsHref)} disabled={saving}>
-                Cancel
-              </Button>
-              <Button variant="primary" onClick={save} disabled={saving}>
-                {saving ? "Saving…" : "Save changes"}
-              </Button>
-            </div>
-          </>
-        )}
-      </div>
+            </SpaceBetween>
+          </Form>
+        </form>
+      )}
     </AppShell>
   );
 }

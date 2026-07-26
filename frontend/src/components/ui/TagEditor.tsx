@@ -1,130 +1,76 @@
 "use client";
 
-import { useState } from "react";
-import { Button } from "./Button";
+import CloudscapeTagEditor, { type TagEditorProps } from "@cloudscape-design/components/tag-editor";
 
-const INK = "var(--rz-ink)";
-const MUTED = "var(--rz-muted)";
-const ERROR = "#db0000";
-const MAX_TAGS = 50;
+export type Tag = TagEditorProps.Tag;
 
-type Tag = { key: string; value: string };
+/**
+ * Route 53 tag limits. Key/Value maxima are enforced by Cloudscape itself (128 / 256), which
+ * happens to match the Route 53 API `Tag` type exactly, so we only supply the copy and the
+ * per-resource cap the console surfaces ("You can add up to 50 more tags.").
+ */
+export const MAX_TAGS = 50;
 
-function SearchIcon() {
+const I18N: TagEditorProps.I18nStrings = {
+  keyHeader: "Key",
+  valueHeader: "Value",
+  optional: "optional",
+  keyPlaceholder: "Enter key",
+  valuePlaceholder: "Enter value",
+  addButton: "Add tag",
+  removeButton: "Remove tag",
+  removeButtonAriaLabel: (tag) => `Remove tag ${tag.key}`,
+  undoButton: "Undo",
+  undoPrompt: "This tag will be removed upon saving changes",
+  loading: "Loading tags that are associated with this resource",
+  keySuggestion: "Custom tag key",
+  valueSuggestion: "Custom tag value",
+  emptyTags: "No tags associated with the resource.",
+  tooManyKeysSuggestion: "You have more keys than can be displayed",
+  tooManyValuesSuggestion: "You have more values than can be displayed",
+  keysSuggestionLoading: "Loading tag keys",
+  keysSuggestionError: "Tag keys could not be retrieved",
+  valuesSuggestionLoading: "Loading tag values",
+  valuesSuggestionError: "Tag values could not be retrieved",
+  emptyKeyError: "You must specify a tag key",
+  maxKeyCharLengthError: "The maximum number of characters you can use in a tag key is 128.",
+  maxValueCharLengthError: "The maximum number of characters you can use in a tag value is 256.",
+  duplicateKeyError: "You must specify a unique tag key.",
+  invalidKeyError:
+    "Invalid characters detected. You can use letters, numbers, spaces, and the following characters: + - = . _ : / @",
+  invalidValueError:
+    "Invalid characters detected. You can use letters, numbers, spaces, and the following characters: + - = . _ : / @",
+  awsPrefixError: "Cannot start with aws:",
+  errorIconAriaLabel: "Error",
+  clearAriaLabel: "Clear",
+  itemRemovedAriaLive: "Tag removed",
+  enteredKeyLabel: (key) => `Use "${key}"`,
+  enteredValueLabel: (value) => `Use "${value}"`,
+  tagLimit: (available) =>
+    available === 1 ? "You can add up to 1 more tag." : `You can add up to ${available} more tags.`,
+  tagLimitReached: (limit) =>
+    limit === 1 ? "You have reached the limit of 1 tag." : `You have reached the limit of ${limit} tags.`,
+  tagLimitExceeded: (limit) =>
+    limit === 1 ? "You have exceeded the limit of 1 tag." : `You have exceeded the limit of ${limit} tags.`,
+};
+
+/** Controlled wrapper so the owning form can block submission while a tag row is invalid. */
+export function TagEditor({
+  tags,
+  onChange,
+  loading,
+}: {
+  tags: readonly Tag[];
+  onChange: (tags: readonly Tag[], valid: boolean) => void;
+  loading?: boolean;
+}) {
   return (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke={MUTED} strokeWidth="1.4" aria-hidden>
-      <path d="m11 11 4 4M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10Z" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ErrorIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke={ERROR} strokeWidth="1.4" aria-hidden className="mt-0.5">
-      <circle cx="8" cy="8" r="7" />
-      <path d="m5.5 5.5 5 5M10.5 5.5l-5 5" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-export function TagEditor({ onChange }: { onChange?: (tags: Tag[]) => void }) {
-  const [tags, setTags] = useState<Tag[]>([]);
-
-  const update = (next: Tag[]) => {
-    setTags(next);
-    onChange?.(next);
-  };
-  const add = () => update([...tags, { key: "", value: "" }]);
-  const remove = (i: number) => update(tags.filter((_, idx) => idx !== i));
-  const setField = (i: number, field: keyof Tag, v: string) =>
-    update(tags.map((t, idx) => (idx === i ? { ...t, [field]: v } : t)));
-
-  const inputBase = "h-8 w-full rounded-lg bg-[var(--rz-surface)] pl-9 pr-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]";
-
-  return (
-    <div>
-      {tags.length === 0 ? (
-        <p className="text-[14px]" style={{ color: INK }}>
-          No tags associated with the resource.
-        </p>
-      ) : (
-        <div className="flex flex-col gap-3">
-          {tags.map((t, i) => {
-            const keyEmpty = t.key.trim() === "";
-            return (
-              <div key={i} className="flex flex-wrap items-start gap-3">
-                {/* Key */}
-                <div className="min-w-[240px] flex-1" style={{ maxWidth: 580 }}>
-                  {i === 0 ? (
-                    <label className="mb-1 block text-[14px] font-bold" style={{ color: INK }}>
-                      Key
-                    </label>
-                  ) : (
-                    <span className="sr-only">Key</span>
-                  )}
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-                      <SearchIcon />
-                    </span>
-                    <input
-                      value={t.key}
-                      onChange={(e) => setField(i, "key", e.target.value)}
-                      placeholder="Enter key"
-                      className={inputBase}
-                      style={{ border: `1px solid ${keyEmpty ? ERROR : "var(--rz-borderstrong)"}`, color: keyEmpty ? ERROR : INK }}
-                    />
-                  </div>
-                  {keyEmpty && (
-                    <div className="mt-1 flex items-start gap-1 text-[12px]" style={{ color: ERROR }}>
-                      <ErrorIcon />
-                      <span>Key is empty.</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Value */}
-                <div className="min-w-[240px] flex-1" style={{ maxWidth: 580 }}>
-                  {i === 0 ? (
-                    <label className="mb-1 block text-[14px] font-bold" style={{ color: INK }}>
-                      Value <i className="font-normal italic" style={{ color: MUTED }}>- optional</i>
-                    </label>
-                  ) : (
-                    <span className="sr-only">Value - optional</span>
-                  )}
-                  <div className="relative">
-                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
-                      <SearchIcon />
-                    </span>
-                    <input
-                      value={t.value}
-                      onChange={(e) => setField(i, "value", e.target.value)}
-                      placeholder="Enter value"
-                      className={inputBase}
-                      style={{ border: "1px solid var(--rz-borderstrong)", color: INK }}
-                    />
-                  </div>
-                </div>
-
-                {/* Remove */}
-                <div className={i === 0 ? "pt-7" : ""}>
-                  <Button onClick={() => remove(i)} aria-label="Remove tag">
-                    Remove tag
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="mt-3">
-        <Button onClick={add} disabled={tags.length >= MAX_TAGS}>
-          Add tag
-        </Button>
-      </div>
-      <p className="mt-2 text-[12px]" style={{ color: MUTED }}>
-        You can add up to {MAX_TAGS - tags.length} more tags.
-      </p>
-    </div>
+    <CloudscapeTagEditor
+      tags={tags}
+      loading={loading}
+      tagLimit={MAX_TAGS}
+      i18nStrings={I18N}
+      onChange={({ detail }) => onChange(detail.tags, detail.valid)}
+    />
   );
 }

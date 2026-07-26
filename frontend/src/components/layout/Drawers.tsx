@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Tabs from "@cloudscape-design/components/tabs";
+import Box from "@cloudscape-design/components/box";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import Button from "@cloudscape-design/components/button";
 
 const INK = "var(--rz-ink)";
 const SECONDARY = "var(--rz-secondary)";
@@ -80,5 +84,60 @@ export function HelpContent() {
         </li>
       </ul>
     </div>
+  );
+}
+
+/**
+ * Body of the "Operational troubleshooting" drawer. The real console surfaces
+ * CloudWatch-backed telemetry here, which this clone has no source for, so the
+ * two tabs explain what they would do rather than faking data.
+ */
+export function ToolsContent() {
+  return (
+    <Tabs
+      tabs={[
+        {
+          id: "explore",
+          label: "Explore related",
+          content: (
+            <Box padding={{ top: "l" }} textAlign="center">
+              <SpaceBetween size="m">
+                <Box variant="strong">Explore related resources and telemetry</Box>
+                <Box variant="p" color="text-body-secondary">
+                  To get started, search for a resource or choose the Explore related links and
+                  icons from console graphs and pages.
+                </Box>
+                <Button iconName="search" disabled>
+                  Find resources
+                </Button>
+                <Box variant="small" color="text-status-inactive">
+                  Related-resource telemetry comes from Amazon CloudWatch, which isn&apos;t
+                  available in this clone.
+                </Box>
+              </SpaceBetween>
+            </Box>
+          ),
+        },
+        {
+          id: "investigate",
+          label: "Investigate",
+          content: (
+            <Box padding={{ top: "l" }} textAlign="center">
+              <SpaceBetween size="m">
+                <Box variant="strong">Start an investigation</Box>
+                <Box variant="p" color="text-body-secondary">
+                  Investigations correlate signals across your resources to help troubleshoot
+                  operational issues affecting this hosted zone.
+                </Box>
+                <Box variant="small" color="text-status-inactive">
+                  Investigations require Amazon CloudWatch, which isn&apos;t available in this
+                  clone.
+                </Box>
+              </SpaceBetween>
+            </Box>
+          ),
+        },
+      ]}
+    />
   );
 }
