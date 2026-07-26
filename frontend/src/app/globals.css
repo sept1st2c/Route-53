@@ -1,0 +1,143 @@
+@import "tailwindcss";
+
+/* Dark mode driven by a `.dark` class on <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ─── AWS Cloudscape design tokens — light (default) ─────────────────────── */
+:root {
+  --layout: #f2f3f3;
+  --surface: #ffffff;
+  --surface-alt: #fbfbfb;
+  --surface-hover: #f4f6f9;
+  --border: #d5dbdb;
+  --divider: #e9ebed;
+  --fg: #0f141a;
+  --heading: #0f1b2d;
+  --muted: #5f6b7a;
+  --primary: #0972d3;
+  --primary-hover: #065299;
+  --primary-active: #033160;
+  --link: #0972d3;
+  --success: #037f0c;
+  --error: #d91515;
+  --warning: #8d6605;
+  --topnav: #232f3e;
+  --topnav-hover: #2e3b4e;
+  --input-bg: #ffffff;
+
+  /* Route 53 console palette — exact light hexes used across the app.
+     These flip in `.dark` below so the whole console themes from one place. */
+  --rz-ink: #0f141a;
+  --rz-secondary: #424650;
+  --rz-muted: #656871;
+  --rz-link: #006ce0;
+  --rz-border: #c6c6cd;
+  --rz-borderstrong: #8c8c94;
+  --rz-divider: #e9ebed;
+  --rz-surface: #ffffff;
+  --rz-layout: #fcfcfd;
+  --rz-hover: #f4f6f9;
+  --rz-selected: #f0fbff;
+}
+
+/* ─── Dark theme ─────────────────────────────────────────────────────────── */
+.dark {
+  --layout: #131920;
+  --surface: #161d26;
+  --surface-alt: #19222e;
+  --surface-hover: #232f3e;
+  --border: #414d5c;
+  --divider: #2a3645;
+  --fg: #d1d8e0;
+  --heading: #e9ebed;
+  --muted: #8d99a8;
+  --primary: #539fe5;
+  --primary-hover: #89bdee;
+  --primary-active: #b9d9f5;
+  --link: #539fe5;
+  --success: #29ad32;
+  --error: #eb6f6f;
+  --warning: #e0a330;
+  --topnav: #161d26;
+  --topnav-hover: #232f3e;
+  --input-bg: #1b2532;
+
+  /* Dark equivalents of the console palette — anchored to AWS dark mode:
+     #131920 = main content canvas, #161D26 = sidebar / cards / panels. */
+  --rz-ink: #e9ebed;
+  --rz-secondary: #b7c0cc;
+  --rz-muted: #8d99a8;
+  --rz-link: #539fe5;
+  --rz-border: #2c353f;
+  --rz-borderstrong: #57606b;
+  --rz-divider: #232b34;
+  --rz-surface: #161d26;
+  --rz-layout: #131920;
+  --rz-hover: #1f2730;
+  --rz-selected: #18222e;
+}
+
+/* ─── Expose tokens as Tailwind utilities (bg-surface, text-muted, …) ─────── */
+@theme inline {
+  --color-layout: var(--layout);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-divider: var(--divider);
+  --color-fg: var(--fg);
+  --color-heading: var(--heading);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-link: var(--link);
+  --color-success: var(--success);
+  --color-error: var(--error);
+  --color-warning: var(--warning);
+  --color-topnav: var(--topnav);
+  --color-topnav-hover: var(--topnav-hover);
+  --color-input: var(--input-bg);
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--layout);
+    color: var(--fg);
+  }
+
+  /* Clickable elements get the hand/pointer cursor (browsers default <button> to an arrow). */
+  button:not(:disabled),
+  a,
+  [role="button"],
+  summary,
+  select,
+  label,
+  input[type="checkbox"],
+  input[type="radio"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* Thin AWS-style scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
