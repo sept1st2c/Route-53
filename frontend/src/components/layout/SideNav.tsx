@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
 
 const INK = "var(--rz-ink)";
@@ -20,17 +20,20 @@ const TOP: Item[] = [
   { label: "Profiles", href: "/profiles" },
 ];
 
+// Each of these mocked sections shares one "Coming soon" page per group, so every
+// item gets its own `section` query param — otherwise every item with the same
+// href would show as active at once (they'd all match a plain pathname check).
 const GROUPS: Group[] = [
-  { label: "Global Resolver", items: [{ label: "Global resolvers", href: "/resolver", badge: "New" }] },
+  { label: "Global Resolver", items: [{ label: "Global resolvers", href: "/resolver?section=global-resolvers", badge: "New" }] },
   {
     label: "VPC Resolver",
     items: [
-      { label: "VPCs", href: "/resolver" },
-      { label: "Inbound endpoints", href: "/resolver" },
-      { label: "Outbound endpoints", href: "/resolver" },
-      { label: "Rules", href: "/resolver" },
-      { label: "Query logging", href: "/resolver" },
-      { label: "Outposts", href: "/resolver" },
+      { label: "VPCs", href: "/resolver?section=vpcs" },
+      { label: "Inbound endpoints", href: "/resolver?section=inbound-endpoints" },
+      { label: "Outbound endpoints", href: "/resolver?section=outbound-endpoints" },
+      { label: "Rules", href: "/resolver?section=rules" },
+      { label: "Query logging", href: "/resolver?section=query-logging" },
+      { label: "Outposts", href: "/resolver?section=outposts" },
     ],
   },
   {
@@ -44,8 +47,8 @@ const GROUPS: Group[] = [
   {
     label: "Traffic flow",
     items: [
-      { label: "Traffic policies", href: "/traffic-policies" },
-      { label: "Policy records", href: "/traffic-policies" },
+      { label: "Traffic policies", href: "/traffic-policies?section=traffic-policies" },
+      { label: "Policy records", href: "/traffic-policies?section=policy-records" },
     ],
   },
 ];
@@ -75,7 +78,20 @@ function NavLink({ item, active }: { item: Item; active: boolean }) {
 
 export function SideNav({ onCollapse }: { onCollapse: () => void }) {
   const pathname = usePathname();
-  const isActive = (href?: string) => !!href && pathname.startsWith(href);
+  const searchParams = useSearchParams();
+
+  const isActive = (href?: string) => {
+    if (!href) return false;
+    const [path, query] = href.split("?");
+    if (!pathname.startsWith(path)) return false;
+    const wantedSection = new URLSearchParams(query).get("section");
+    // Items without a `section` param (Dashboard, Hosted zones, …) just need the pathname
+    // to match; items that share a route (Resolver, Traffic flow groups) must also agree
+    // on which `section` is currently selected, or every item sharing that href would
+    // light up together.
+    if (!wantedSection) return true;
+    return searchParams.get("section") === wantedSection;
+  };
 
   return (
     <nav
