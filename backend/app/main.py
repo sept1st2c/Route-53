@@ -7,6 +7,7 @@ from app import models
 from app.models import HostedZone, User
 from app.routes import auth, zones, records
 from app.routes.auth import seed_demo_user
+from app.services.demo_seed import seed_demo_content
 
 # Create all tables
 models.Base.metadata.create_all(bind=engine)
@@ -70,6 +71,8 @@ def on_startup():
     try:
         seed_demo_user(db)
         adopt_orphan_zones(db)
+        # Last, so adopted orphan zones count as existing content and suppress seeding.
+        seed_demo_content(db)
     finally:
         db.close()
 

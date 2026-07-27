@@ -6,6 +6,30 @@ A functional clone of the **AWS Route 53** console with persistent storage and a
 
 ---
 
+## Live demo
+
+| | |
+| --- | --- |
+| **Console** | https://route-53.vercel.app |
+| **API** | https://route53-clone-api-zgy9.onrender.com |
+| **API docs** | https://route53-clone-api-zgy9.onrender.com/api/docs |
+
+```
+Email:    demo@route53.aws
+Password: Demo1234!
+```
+
+The sign-in form offers these credentials directly, so there is nothing to type.
+
+> **First request may take ~40 seconds.** The API runs on Render's free plan, which
+> idles the service after inactivity and cold-starts it on the next request. Once
+> awake it responds normally. That plan also has an ephemeral filesystem, so the
+> SQLite database is recreated on each deploy or wake — the demo account is
+> re-seeded with sample hosted zones automatically, but anything you create
+> yourself will not survive an idle period.
+
+---
+
 ## Tech Stack
 
 | Layer     | Technology                          |
