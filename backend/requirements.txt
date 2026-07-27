@@ -7,3 +7,6 @@ passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
 python-jose[cryptography]==3.5.0
 cryptography==49.0.0
+pytest==9.1.1
+# TestClient needs an HTTP client; httpx2 avoids starlette's deprecation warning.
+httpx2==2.9.1

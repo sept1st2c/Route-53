@@ -2,63 +2,152 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import ColumnLayout from "@cloudscape-design/components/column-layout";
+import Container from "@cloudscape-design/components/container";
+import ExpandableSection from "@cloudscape-design/components/expandable-section";
+import Form from "@cloudscape-design/components/form";
+import FormField from "@cloudscape-design/components/form-field";
+import Grid from "@cloudscape-design/components/grid";
+import Header from "@cloudscape-design/components/header";
+import Input from "@cloudscape-design/components/input";
+import Link from "@cloudscape-design/components/link";
+import Select from "@cloudscape-design/components/select";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import Table from "@cloudscape-design/components/table";
+import Textarea from "@cloudscape-design/components/textarea";
+import Toggle from "@cloudscape-design/components/toggle";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
-import { InfoLink } from "@/components/ui/Container";
 import { zoneService, recordService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
-import type { HostedZone, RecordType } from "@/types";
+import {
+  ENDPOINT_REQUIRED_ERROR,
+  RECORD_TYPE_OPTIONS,
+  REGION_REQUIRED_ERROR,
+  ROUTING_POLICY_OPTIONS,
+  TTL_CONSTRAINT_TEXT,
+  TTL_PRESETS,
+  recordTypeOption,
+  validateRecordName,
+  validateRecordValue,
+  validateTtl,
+} from "@/lib/dnsValidation";
+import type { DNSRecord, HostedZone, RecordType } from "@/types";
 
-const INK = "var(--rz-ink)";
-const SECONDARY = "var(--rz-secondary)";
-const MUTED = "var(--rz-muted)";
-const LINK = "var(--rz-link)";
-const BORDER = "var(--rz-border)";
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
+const TYPE_OPTIONS = RECORD_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+const POLICY_OPTIONS = ROUTING_POLICY_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 
-const TYPE_OPTIONS: [RecordType, string][] = [
-  ["A", "A – Routes traffic to an IPv4 address and some AWS resources"],
-  ["AAAA", "AAAA – Routes traffic to an IPv6 address and some AWS resources"],
-  ["CNAME", "CNAME – Routes traffic to another domain name and to some AWS resources"],
-  ["MX", "MX – Specifies mail servers"],
-  ["TXT", "TXT – Used to verify email senders and for application-specific values"],
-  ["PTR", "PTR – Maps an IP address to a domain name"],
-  ["SRV", "SRV – Application-specific values that identify servers"],
-  ["SPF", "SPF – Not recommended"],
-  ["NAPTR", "NAPTR – Used by DDDS applications"],
-  ["CAA", "CAA – Restricts CAs that can create SSL/TLS certificates for the domain"],
-  ["NS", "NS – Name servers for a hosted zone"],
-  ["DS", "DS – Delegation Signer, used to establish a chain of trust for DNSSEC"],
-  ["TLSA", "TLSA – Associates a TLS server certificate or public key with the domain name. DNSSEC required."],
-  ["SSHFP", "SSHFP – Specifies the SSH key fingerprint and algorithm. DNSSEC required."],
-  ["HTTPS", "HTTPS – Provides connection optimization details like protocols, ports, and endpoints for efficient client-service communication."],
-  ["SVCB", "SVCB – Delivers extensible configuration information for accessing service endpoints."],
+/**
+ * Alias targets the console offers under "Route traffic to". The endpoints are mocked, but only the
+ * regional ones ask for a Region — CloudFront, Global Accelerator and in-zone records are global.
+ */
+const ALIAS_ENDPOINTS = [
+  { value: "apigateway", label: "Alias to API Gateway API", regional: true },
+  { value: "elb", label: "Alias to Application and Classic Load Balancer", regional: true },
+  { value: "cloudfront", label: "Alias to CloudFront distribution", regional: false },
+  { value: "beanstalk", label: "Alias to Elastic Beanstalk environment", regional: true },
+  { value: "globalaccelerator", label: "Alias to Global Accelerator", regional: false },
+  { value: "nlb", label: "Alias to Network Load Balancer", regional: true },
+  { value: "s3", label: "Alias to S3 website endpoint", regional: true },
+  { value: "vpce", label: "Alias to VPC endpoint", regional: true },
+  { value: "record", label: "Alias to another record in this hosted zone", regional: false },
 ];
 
-const VALUE_PLACEHOLDER: Partial<Record<RecordType, string>> = {
-  A: "192.0.2.235",
-  AAAA: "2001:db8::1",
-  CNAME: "example.com",
-  MX: "10 mail.example.com",
-  TXT: '"v=spf1 -all"',
-  PTR: "example.com",
-  SRV: "1 10 5269 server.example.com",
-  SPF: '"v=spf1 ip4:192.0.2.0/24 -all"',
-  NAPTR: '100 10 "U" "E2U+sip" "!^.*$!sip:info@example.com!" .',
-  CAA: '0 issue "letsencrypt.org"',
-  NS: "ns-1.example.com",
-  DS: "12345 13 2 1F987CC6...",
-  TLSA: "3 1 1 0123456789ABCDEF...",
-  SSHFP: "2 1 123456789ABCDEF...",
-  HTTPS: '1 . alpn="h2"',
-  SVCB: '1 . alpn="h2"',
+/** Regions Route 53 accepts for a latency/alias target (API_ResourceRecordSet Region valid values). */
+const REGIONS: { code: string; name: string }[] = [
+  { code: "us-east-1", name: "US East (N. Virginia)" },
+  { code: "us-east-2", name: "US East (Ohio)" },
+  { code: "us-west-1", name: "US West (N. California)" },
+  { code: "us-west-2", name: "US West (Oregon)" },
+  { code: "af-south-1", name: "Africa (Cape Town)" },
+  { code: "ap-east-1", name: "Asia Pacific (Hong Kong)" },
+  { code: "ap-south-1", name: "Asia Pacific (Mumbai)" },
+  { code: "ap-south-2", name: "Asia Pacific (Hyderabad)" },
+  { code: "ap-northeast-1", name: "Asia Pacific (Tokyo)" },
+  { code: "ap-northeast-2", name: "Asia Pacific (Seoul)" },
+  { code: "ap-northeast-3", name: "Asia Pacific (Osaka)" },
+  { code: "ap-southeast-1", name: "Asia Pacific (Singapore)" },
+  { code: "ap-southeast-2", name: "Asia Pacific (Sydney)" },
+  { code: "ap-southeast-3", name: "Asia Pacific (Jakarta)" },
+  { code: "ap-southeast-4", name: "Asia Pacific (Melbourne)" },
+  { code: "ca-central-1", name: "Canada (Central)" },
+  { code: "ca-west-1", name: "Canada West (Calgary)" },
+  { code: "eu-central-1", name: "Europe (Frankfurt)" },
+  { code: "eu-central-2", name: "Europe (Zurich)" },
+  { code: "eu-west-1", name: "Europe (Ireland)" },
+  { code: "eu-west-2", name: "Europe (London)" },
+  { code: "eu-west-3", name: "Europe (Paris)" },
+  { code: "eu-north-1", name: "Europe (Stockholm)" },
+  { code: "eu-south-1", name: "Europe (Milan)" },
+  { code: "eu-south-2", name: "Europe (Spain)" },
+  { code: "il-central-1", name: "Israel (Tel Aviv)" },
+  { code: "me-central-1", name: "Middle East (UAE)" },
+  { code: "me-south-1", name: "Middle East (Bahrain)" },
+  { code: "mx-central-1", name: "Mexico (Central)" },
+  { code: "sa-east-1", name: "South America (São Paulo)" },
+];
+
+const REGION_OPTIONS = REGIONS.map((r) => ({ value: r.code, label: r.name, description: r.code }));
+
+type Block = {
+  key: number;
+  sub: string;
+  type: RecordType;
+  value: string;
+  ttl: string;
+  policy: string;
+  alias: boolean;
+  endpoint: string;
+  region: string;
+  evaluateTargetHealth: boolean;
+  /** Errors stay hidden until this block has been through a submit attempt. */
+  submitted: boolean;
 };
 
-type Block = { key: number; sub: string; type: RecordType; value: string; ttl: string; alias: boolean };
+type BlockErrors = { name?: string; value?: string; ttl?: string; endpoint?: string; region?: string };
 
 let counter = 1;
-const newBlock = (): Block => ({ key: counter++, sub: "", type: "A", value: "", ttl: "300", alias: false });
+const newBlock = (): Block => ({
+  key: counter++,
+  sub: "",
+  type: "A",
+  value: "",
+  ttl: "300",
+  policy: "Simple",
+  alias: false,
+  endpoint: "",
+  region: "",
+  evaluateTargetHealth: false,
+  submitted: false,
+});
+
+const isRegional = (endpoint: string) => ALIAS_ENDPOINTS.find((e) => e.value === endpoint)?.regional ?? false;
+
+function validateBlock(b: Block, zone: string): BlockErrors {
+  const errors: BlockErrors = {};
+  const name = validateRecordName(b.sub, zone, b.type);
+  if (name) errors.name = name;
+
+  if (b.alias) {
+    if (!b.endpoint) errors.endpoint = ENDPOINT_REQUIRED_ERROR;
+    if (isRegional(b.endpoint) && !b.region) errors.region = REGION_REQUIRED_ERROR;
+    return errors;
+  }
+
+  const value = validateRecordValue(b.type, b.value);
+  if (value) errors.value = value;
+  const ttl = validateTtl(b.ttl);
+  if (ttl) errors.ttl = ttl;
+  return errors;
+}
+
+/** Route 53 stores the resolved alias target as the record's value; ours records what was chosen. */
+function aliasTarget(b: Block): string {
+  const label = ALIAS_ENDPOINTS.find((e) => e.value === b.endpoint)?.label ?? "Alias";
+  return isRegional(b.endpoint) ? `${label} (${b.region})` : label;
+}
 
 export default function CreateRecordPage() {
   const params = useParams();
@@ -68,9 +157,8 @@ export default function CreateRecordPage() {
 
   const [zone, setZone] = useState<HostedZone | null>(null);
   const [blocks, setBlocks] = useState<Block[]>([newBlock()]);
-  const [error, setError] = useState("");
+  const [submitError, setSubmitError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [showExisting, setShowExisting] = useState(false);
 
   const recordsHref = `/hosted-zones/${zoneId}/records`;
   const zoneNoDot = (zone?.name ?? "").replace(/\.$/, "");
@@ -92,13 +180,10 @@ export default function CreateRecordPage() {
   const removeBlock = (key: number) => setBlocks((bs) => (bs.length > 1 ? bs.filter((b) => b.key !== key) : bs));
 
   const submit = async () => {
-    setError("");
-    for (const b of blocks) {
-      if (!b.value.trim()) {
-        setError("Enter a value for every record.");
-        return;
-      }
-    }
+    setSubmitError("");
+    setBlocks((bs) => bs.map((b) => ({ ...b, submitted: true })));
+    if (blocks.some((b) => Object.keys(validateBlock(b, zoneNoDot)).length > 0)) return;
+
     setSaving(true);
     try {
       for (const b of blocks) {
@@ -106,29 +191,25 @@ export default function CreateRecordPage() {
         await recordService.create(zoneId, {
           name,
           type: b.type,
-          value: b.value.trim(),
-          ttl: Number(b.ttl) || 300,
-          routing_policy: "Simple",
+          value: b.alias ? aliasTarget(b) : b.value.trim(),
+          // Alias records inherit the target's TTL, so Route 53 stores none of their own.
+          ttl: b.alias ? null : Number(b.ttl),
+          routing_policy: b.policy,
         });
       }
       notify({ type: "success", content: `Created ${blocks.length} record${blocks.length > 1 ? "s" : ""}.` });
       router.push(recordsHref);
     } catch (e) {
-      setError(apiError(e, "Failed to create record"));
+      setSubmitError(apiError(e, "Failed to create record"));
       setSaving(false);
     }
   };
 
-  const inputCls = "h-8 rounded-lg bg-[var(--rz-surface)] px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]";
-  const labelRow = (text: string) => (
-    <div className="mb-1 flex items-center gap-2">
-      <label className="text-[14px] font-bold" style={{ color: INK }}>{text}</label>
-      <InfoLink />
-    </div>
-  );
+  const info = <Link variant="info">Info</Link>;
 
   return (
     <AppShell
+      contentType="form"
       breadcrumbs={[
         { label: "Route 53", href: "/dashboard" },
         { label: "Hosted zones", href: "/hosted-zones" },
@@ -136,171 +217,253 @@ export default function CreateRecordPage() {
         { label: "Create record" },
       ]}
     >
-      <div style={{ fontFamily: FONT, color: INK }}>
-        <div className="mb-4 flex items-center gap-2">
-          <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>Create record</h1>
-          <InfoLink />
-        </div>
+      <SpaceBetween size="l">
+        <Form
+          header={
+            <Header variant="h1" info={info}>
+              Create record
+            </Header>
+          }
+          errorText={submitError || undefined}
+          actions={
+            <SpaceBetween direction="horizontal" size="xs">
+              <Button variant="link" formAction="none" disabled={saving} onClick={() => router.push(recordsHref)}>
+                Cancel
+              </Button>
+              <Button variant="primary" formAction="none" loading={saving} onClick={submit}>
+                Create records
+              </Button>
+            </SpaceBetween>
+          }
+        >
+          <Container
+            header={
+              <Header
+                variant="h2"
+                actions={
+                  <Link variant="primary" onFollow={(e) => e.preventDefault()}>
+                    Switch to wizard
+                  </Link>
+                }
+              >
+                Quick create record
+              </Header>
+            }
+            footer={
+              <Box textAlign="right">
+                <Button formAction="none" onClick={addBlock}>
+                  Add another record
+                </Button>
+              </Box>
+            }
+          >
+            <SpaceBetween size="l">
+              {blocks.map((b, i) => {
+                const errors = b.submitted ? validateBlock(b, zoneNoDot) : {};
+                const set = (patch: Partial<Block>) => setField(b.key, patch);
+                return (
+                  <ExpandableSection
+                    key={b.key}
+                    defaultExpanded
+                    headingTagOverride="h3"
+                    headerText={`Record ${i + 1}`}
+                    headerActions={
+                      <Button formAction="none" disabled={blocks.length === 1} onClick={() => removeBlock(b.key)}>
+                        Delete
+                      </Button>
+                    }
+                  >
+                    <SpaceBetween size="l">
+                      <ColumnLayout columns={2}>
+                        <SpaceBetween size="m">
+                          <FormField
+                            label="Record name"
+                            info={info}
+                            constraintText="Keep blank to create a record for the root domain."
+                            errorText={errors.name}
+                          >
+                            {/* Suffix shares the control row with the input, as the console renders it. */}
+                            <Grid gridDefinition={[{ colspan: 7 }, { colspan: 5 }]}>
+                              <Input
+                                value={b.sub}
+                                placeholder="subdomain"
+                                onChange={({ detail }) => set({ sub: detail.value })}
+                              />
+                              <Box padding={{ top: "xxs" }}>{zoneNoDot}</Box>
+                            </Grid>
+                          </FormField>
+                          <Toggle checked={b.alias} onChange={({ detail }) => set({ alias: detail.checked })}>
+                            Alias
+                          </Toggle>
+                        </SpaceBetween>
 
-        {/* Quick create card */}
-        <section className="rounded-[16px] bg-[var(--rz-surface)]" style={{ border: `1px solid ${BORDER}` }}>
-          <div className="flex items-center justify-between px-5 pb-2 pt-3">
-            <h2 className="text-[20px] font-bold" style={{ letterSpacing: "-0.3px" }}>Quick create record</h2>
-            <button className="text-[14px] font-bold" style={{ color: LINK }}>Switch to wizard</button>
-          </div>
+                        <FormField label="Record type" info={info}>
+                          <Select
+                            selectedOption={TYPE_OPTIONS.find((o) => o.value === b.type) ?? null}
+                            options={TYPE_OPTIONS}
+                            onChange={({ detail }) => set({ type: detail.selectedOption.value as RecordType })}
+                          />
+                        </FormField>
+                      </ColumnLayout>
 
-          <div className="flex flex-col gap-4 px-5 pb-5">
-            {blocks.map((b, i) => (
-              <div key={b.key} className={i > 0 ? "border-t pt-4" : ""} style={{ borderColor: BORDER }}>
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="flex items-center gap-1 text-[16px] font-bold">
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill={INK} aria-hidden><path d="M8 11 4 5h8l-4 6Z" /></svg>
-                    Record {i + 1}
-                  </span>
-                  <Button disabled={blocks.length === 1} onClick={() => removeBlock(b.key)}>Delete</Button>
-                </div>
+                      {b.alias ? (
+                        <ColumnLayout columns={2}>
+                          <FormField label="Route traffic to" info={info} errorText={errors.endpoint}>
+                            <Select
+                              placeholder="Choose endpoint"
+                              selectedOption={ALIAS_ENDPOINTS.find((o) => o.value === b.endpoint) ?? null}
+                              options={ALIAS_ENDPOINTS.map((o) => ({ value: o.value, label: o.label }))}
+                              onChange={({ detail }) =>
+                                set({ endpoint: detail.selectedOption.value ?? "", region: "" })
+                              }
+                            />
+                          </FormField>
+                          <FormField
+                            label="Region"
+                            info={info}
+                            errorText={errors.region}
+                            constraintText={
+                              b.endpoint && !isRegional(b.endpoint) ? "This endpoint type is global." : undefined
+                            }
+                          >
+                            <Select
+                              placeholder="Choose Region"
+                              disabled={!isRegional(b.endpoint)}
+                              filteringType="auto"
+                              selectedOption={REGION_OPTIONS.find((o) => o.value === b.region) ?? null}
+                              options={REGION_OPTIONS}
+                              onChange={({ detail }) => set({ region: detail.selectedOption.value ?? "" })}
+                            />
+                          </FormField>
+                        </ColumnLayout>
+                      ) : (
+                        <FormField
+                          label="Value"
+                          info={info}
+                          constraintText="Enter multiple values on separate lines."
+                          errorText={errors.value}
+                          stretch
+                        >
+                          <Textarea
+                            rows={4}
+                            value={b.value}
+                            placeholder={recordTypeOption(b.type)?.placeholder}
+                            onChange={({ detail }) => set({ value: detail.value })}
+                          />
+                        </FormField>
+                      )}
 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {/* Record name */}
-                  <div>
-                    {labelRow("Record name")}
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={b.sub}
-                        onChange={(e) => setField(b.key, { sub: e.target.value })}
-                        placeholder="subdomain"
-                        className={inputCls + " w-full max-w-[380px] italic"}
-                        style={{ border: "1px solid var(--rz-borderstrong)", fontStyle: b.sub ? "normal" : "italic" }}
-                      />
-                      <span className="text-[14px]" style={{ color: INK }}>{zoneNoDot}</span>
-                    </div>
-                    <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>Keep blank to create a record for the root domain.</p>
-                    {/* Alias toggle (cosmetic) */}
-                    <button
-                      type="button"
-                      onClick={() => setField(b.key, { alias: !b.alias })}
-                      className="mt-3 flex items-center gap-2 text-[14px]"
-                    >
-                      <span className="relative inline-block h-4 w-6 rounded-full transition-colors" style={{ backgroundColor: b.alias ? LINK : "var(--rz-secondary)" }}>
-                        <span className="absolute top-0.5 h-3 w-3 rounded-full bg-[var(--rz-surface)] transition-all" style={{ left: b.alias ? 10 : 2 }} />
-                      </span>
-                      Alias
-                    </button>
-                  </div>
+                      {b.alias && (
+                        <Toggle
+                          checked={b.evaluateTargetHealth}
+                          onChange={({ detail }) => set({ evaluateTargetHealth: detail.checked })}
+                        >
+                          Evaluate target health
+                        </Toggle>
+                      )}
 
-                  {/* Record type */}
-                  <div>
-                    {labelRow("Record type")}
-                    <select
-                      value={b.type}
-                      onChange={(e) => setField(b.key, { type: e.target.value as RecordType })}
-                      className={inputCls + " w-full"}
-                      style={{ border: "1px solid var(--rz-borderstrong)" }}
-                    >
-                      {TYPE_OPTIONS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}
-                    </select>
-                  </div>
-                </div>
+                      <ColumnLayout columns={2}>
+                        {b.alias ? (
+                          <Box />
+                        ) : (
+                          <FormField
+                            label="TTL (seconds)"
+                            info={info}
+                            constraintText={TTL_CONSTRAINT_TEXT}
+                            errorText={errors.ttl}
+                          >
+                            {/* Quick-set chips share the control row with the input, as the console renders it. */}
+                            <Grid gridDefinition={[{ colspan: 7 }, { colspan: 5 }]}>
+                              <Input
+                                type="number"
+                                inputMode="numeric"
+                                value={b.ttl}
+                                onChange={({ detail }) => set({ ttl: detail.value })}
+                              />
+                              <SpaceBetween direction="horizontal" size="xs">
+                                {TTL_PRESETS.map((p) => (
+                                  <Button
+                                    key={p.label}
+                                    formAction="none"
+                                    onClick={() => set({ ttl: String(p.seconds) })}
+                                  >
+                                    {p.label}
+                                  </Button>
+                                ))}
+                              </SpaceBetween>
+                            </Grid>
+                          </FormField>
+                        )}
 
-                {/* Value */}
-                <div className="mt-4">
-                  {labelRow("Value")}
-                  <textarea
-                    value={b.value}
-                    onChange={(e) => setField(b.key, { value: e.target.value })}
-                    rows={3}
-                    placeholder={VALUE_PLACEHOLDER[b.type]}
-                    className="w-full resize-y rounded-lg bg-[var(--rz-surface)] px-3 py-2 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]"
-                    style={{ border: "1px solid var(--rz-borderstrong)", minHeight: 80 }}
-                  />
-                  <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>Enter multiple values on separate lines.</p>
-                </div>
+                        <FormField label="Routing policy" info={info}>
+                          <Select
+                            selectedOption={POLICY_OPTIONS.find((o) => o.value === b.policy) ?? null}
+                            options={POLICY_OPTIONS}
+                            onChange={({ detail }) => set({ policy: detail.selectedOption.value ?? "Simple" })}
+                          />
+                        </FormField>
+                      </ColumnLayout>
+                    </SpaceBetween>
+                  </ExpandableSection>
+                );
+              })}
+            </SpaceBetween>
+          </Container>
+        </Form>
 
-                {/* TTL + Routing policy */}
-                <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div>
-                    {labelRow("TTL (seconds)")}
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={b.ttl}
-                        onChange={(e) => setField(b.key, { ttl: e.target.value })}
-                        className={inputCls + " flex-1"}
-                        style={{ border: "1px solid var(--rz-borderstrong)" }}
-                      />
-                      {([["1m", "60"], ["1h", "3600"], ["1d", "86400"]] as const).map(([lbl, v]) => (
-                        <button key={lbl} onClick={() => setField(b.key, { ttl: v })} className="h-8 rounded-full px-3 text-[14px] font-bold" style={{ border: `1px solid ${LINK}`, color: LINK }}>
-                          {lbl}
-                        </button>
-                      ))}
-                    </div>
-                    <p className="mt-1 text-[12px] leading-4" style={{ color: MUTED }}>Recommended values: 60 to 172800 (two days)</p>
-                  </div>
-                  <div>
-                    {labelRow("Routing policy")}
-                    <select className={inputCls + " w-full"} style={{ border: "1px solid var(--rz-borderstrong)" }} defaultValue="Simple">
-                      <option value="Simple">Simple routing</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {error && <p className="text-[12px]" style={{ color: "#d91515" }}>{error}</p>}
-          </div>
-
-          <div className="flex justify-end border-t px-5 py-3" style={{ borderColor: BORDER }}>
-            <Button onClick={addBlock}>Add another record</Button>
-          </div>
-        </section>
-
-        {/* Footer actions */}
-        <div className="mt-5 flex justify-end gap-3">
-          <Button variant="link" onClick={() => router.push(recordsHref)} disabled={saving}>Cancel</Button>
-          <Button variant="primary" onClick={submit} disabled={saving}>
-            {saving ? "Creating…" : "Create records"}
-          </Button>
-        </div>
-
-        {/* View existing records (collapsible) */}
-        <div className="mt-5">
-          <button onClick={() => setShowExisting((o) => !o)} className="flex items-center gap-1 text-[16px] font-bold">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill={INK} aria-hidden style={{ transform: showExisting ? "none" : "rotate(-90deg)" }}><path d="M8 11 4 5h8l-4 6Z" /></svg>
-            View existing records
-          </button>
-          <p className="mt-1 text-[14px]" style={{ color: SECONDARY }}>
-            The following table lists the existing records in {zoneNoDot}.
-          </p>
-          {showExisting && <ExistingRecords zoneId={zoneId} />}
-        </div>
-      </div>
+        <ExpandableSection
+          headingTagOverride="h3"
+          headerText="View existing records"
+          headerDescription={`The following table lists the existing records in ${zoneNoDot}.`}
+        >
+          <ExistingRecords zoneId={zoneId} />
+        </ExpandableSection>
+      </SpaceBetween>
     </AppShell>
   );
 }
 
 function ExistingRecords({ zoneId }: { zoneId: number }) {
-  const [items, setItems] = useState<{ name: string; type: string }[]>([]);
+  const [items, setItems] = useState<DNSRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    recordService.list(zoneId, { limit: 100 }).then((d) => setItems(d.items.map((r) => ({ name: r.name, type: r.type })))).catch(() => {});
+    recordService
+      .list(zoneId, { limit: 100 })
+      .then((d) => setItems(d.items))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [zoneId]);
+
   return (
-    <div className="mt-3 rounded-[16px] bg-[var(--rz-surface)]" style={{ border: `1px solid ${BORDER}` }}>
-      <table className="w-full text-[14px]">
-        <thead>
-          <tr>
-            <th className="px-4 py-2 text-left font-bold" style={{ color: SECONDARY, borderBottom: `1px solid ${BORDER}` }}>Record name</th>
-            <th className="px-4 py-2 text-left font-bold" style={{ color: SECONDARY, borderBottom: `1px solid ${BORDER}` }}>Type</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((r, i) => (
-            <tr key={i}>
-              <td className="px-4 py-2" style={{ borderBottom: "1px solid var(--rz-divider)" }}>{r.name}</td>
-              <td className="px-4 py-2" style={{ borderBottom: "1px solid var(--rz-divider)" }}>{r.type}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table
+      variant="embedded"
+      loading={loading}
+      loadingText="Loading records"
+      items={items}
+      empty={
+        <Box textAlign="center" color="inherit" padding={{ vertical: "s" }}>
+          No records
+        </Box>
+      }
+      columnDefinitions={[
+        { id: "name", header: "Record name", cell: (r: DNSRecord) => r.name },
+        { id: "type", header: "Type", cell: (r: DNSRecord) => r.type },
+        { id: "policy", header: "Routing policy", cell: (r: DNSRecord) => r.routing_policy || "Simple" },
+        { id: "alias", header: "Alias", cell: (r: DNSRecord) => (r.ttl === null ? "Yes" : "No") },
+        {
+          id: "value",
+          header: "Value/Route traffic to",
+          cell: (r: DNSRecord) => (
+            <Box variant="span">
+              {r.value.split("\n").map((line, i) => (
+                <div key={i}>{line}</div>
+              ))}
+            </Box>
+          ),
+        },
+        { id: "ttl", header: "TTL (seconds)", cell: (r: DNSRecord) => r.ttl ?? "-" },
+      ]}
+    />
   );
 }

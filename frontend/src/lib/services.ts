@@ -84,8 +84,13 @@ export const zoneService = {
 export interface RecordQuery {
   search?: string;
   type?: string;
+  routingPolicy?: string;
+  /** "Alias" | "Non-alias" — alias records are the ones stored with a null TTL. */
+  alias?: string;
   page?: number;
   limit?: number;
+  sortBy?: string;
+  sortOrder?: "asc" | "desc";
 }
 
 export const recordService = {
@@ -94,8 +99,12 @@ export const recordService = {
       params: {
         search: q.search || "",
         type: q.type || "",
+        routing_policy: q.routingPolicy || "",
+        alias: q.alias || "",
         page: q.page || 1,
         limit: q.limit || 10,
+        sort_by: q.sortBy || "name",
+        sort_order: q.sortOrder || "asc",
       },
     });
     return data;

@@ -1,28 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import ColumnLayout from "@cloudscape-design/components/column-layout";
+import Form from "@cloudscape-design/components/form";
+import FormField from "@cloudscape-design/components/form-field";
+import Grid from "@cloudscape-design/components/grid";
+import Input from "@cloudscape-design/components/input";
+import Link from "@cloudscape-design/components/link";
+import Modal from "@cloudscape-design/components/modal";
+import Select from "@cloudscape-design/components/select";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import Textarea from "@cloudscape-design/components/textarea";
 import { recordService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
-import { RECORD_TYPES, type DNSRecord, type RecordType } from "@/types";
+import {
+  RECORD_TYPE_OPTIONS,
+  ROUTING_POLICY_OPTIONS,
+  TTL_CONSTRAINT_TEXT,
+  TTL_PRESETS,
+  recordTypeOption,
+  validateRecordName,
+  validateRecordValue,
+  validateTtl,
+} from "@/lib/dnsValidation";
+import type { DNSRecord, RecordType } from "@/types";
 
-const INK = "var(--rz-ink)";
-const MUTED = "var(--rz-muted)";
-const ERROR = "#d91515";
-
-const VALUE_HINT: Partial<Record<RecordType, string>> = {
-  A: "IPv4 address, e.g. 192.0.2.1. Enter multiple values on separate lines.",
-  AAAA: "IPv6 address, e.g. 2001:db8::1. Enter multiple values on separate lines.",
-  CNAME: "Canonical name, e.g. example.com.",
-  TXT: 'Text value, e.g. "v=spf1 -all".',
-  MX: "Priority and mail server, e.g. 10 mail.example.com.",
-  NS: "Name server, one per line.",
-  PTR: "Domain name the IP maps to.",
-  SRV: "Priority weight port target, e.g. 1 10 5269 server.example.com.",
-  CAA: '0 issue "letsencrypt.org"',
-};
+const TYPE_OPTIONS = RECORD_TYPE_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
+const POLICY_OPTIONS = ROUTING_POLICY_OPTIONS.map((o) => ({ value: o.value, label: o.label }));
 
 function stripDot(s: string) {
   return s.replace(/\.$/, "");
@@ -52,7 +59,8 @@ export function RecordForm({
   const [value, setValue] = useState("");
   const [ttl, setTtl] = useState("300");
   const [routing, setRouting] = useState("Simple");
-  const [error, setError] = useState("");
+  const [submitError, setSubmitError] = useState("");
+  const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -72,18 +80,30 @@ export function RecordForm({
       setTtl("300");
       setRouting("Simple");
     }
-    setError("");
+    setSubmitError("");
+    setSubmitted(false);
   }, [open, record, zone]);
 
+  // Recomputed every render so an error clears the moment the field becomes valid.
+  const errors = submitted
+    ? {
+        name: validateRecordName(sub, zone, type) ?? undefined,
+        value: validateRecordValue(type, value) ?? undefined,
+        ttl: validateTtl(ttl) ?? undefined,
+      }
+    : {};
+
   const submit = async () => {
-    setError("");
-    if (!value.trim()) return setError("Enter a value for the record.");
+    setSubmitError("");
+    setSubmitted(true);
+    if (validateRecordName(sub, zone, type) || validateRecordValue(type, value) || validateTtl(ttl)) return;
+
     const fullName = sub.trim() ? `${sub.trim()}.${zone}` : zone;
     const payload = {
       name: fullName,
       type,
       value: value.trim(),
-      ttl: Number(ttl) || 300,
+      ttl: Number(ttl),
       routing_policy: routing,
     };
     setSaving(true);
@@ -98,112 +118,115 @@ export function RecordForm({
       onSaved();
       onClose();
     } catch (e) {
-      setError(apiError(e, "Failed to save record"));
+      setSubmitError(apiError(e, "Failed to save record"));
     } finally {
       setSaving(false);
     }
   };
 
-  const label = "block text-[14px] font-bold";
-  const help = "mt-0.5 text-[12px] leading-4";
-  const field = "mt-1 w-full rounded-lg bg-[var(--rz-surface)] px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]";
+  const info = <Link variant="info">Info</Link>;
 
   return (
     <Modal
-      open={open}
-      title={isEdit ? "Edit record" : "Create record"}
-      onClose={onClose}
+      visible={open}
+      onDismiss={onClose}
+      size="large"
+      header={isEdit ? "Edit record" : "Create record"}
       footer={
-        <>
-          <Button variant="link" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={submit} disabled={saving}>
-            {saving ? "Saving…" : isEdit ? "Save changes" : "Create record"}
-          </Button>
-        </>
+        <Box float="right">
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button variant="link" formAction="none" disabled={saving} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="primary" formAction="none" loading={saving} onClick={submit}>
+              {isEdit ? "Save changes" : "Create record"}
+            </Button>
+          </SpaceBetween>
+        </Box>
       }
     >
-      <div className="flex flex-col gap-4" style={{ color: INK }}>
-        {/* Record name */}
-        <div>
-          <label className={label}>Record name</label>
-          <div className="mt-1 flex items-center gap-2">
-            <input
-              value={sub}
-              onChange={(e) => setSub(e.target.value)}
-              placeholder="(leave blank for the zone apex)"
-              disabled={isEdit}
-              className="h-8 flex-1 rounded-lg bg-[var(--rz-surface)] px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)] disabled:bg-[#f4f4f4]"
-              style={{ border: "1px solid var(--rz-borderstrong)" }}
-            />
-            <span className="text-[14px]" style={{ color: MUTED }}>
-              .{zone}
-            </span>
-          </div>
-        </div>
-
-        {/* Type + TTL */}
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className={label}>Record type</label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as RecordType)}
-              disabled={isEdit}
-              className={field + " h-8 disabled:bg-[#f4f4f4]"}
-              style={{ border: "1px solid var(--rz-borderstrong)" }}
+      <Form variant="embedded" errorText={submitError || undefined}>
+        <SpaceBetween size="l">
+          <ColumnLayout columns={2}>
+            <FormField
+              label="Record name"
+              info={info}
+              constraintText="Keep blank to use the root domain."
+              errorText={errors.name}
             >
-              {RECORD_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="w-32">
-            <label className={label}>TTL (seconds)</label>
-            <input
-              type="number"
-              value={ttl}
-              onChange={(e) => setTtl(e.target.value)}
-              className={field + " h-8"}
-              style={{ border: "1px solid var(--rz-borderstrong)" }}
-            />
-          </div>
-        </div>
+              {/* Suffix shares the control row with the input, as the console renders it. */}
+              <Grid gridDefinition={[{ colspan: 7 }, { colspan: 5 }]}>
+                <Input
+                  value={sub}
+                  placeholder="subdomain"
+                  disabled={isEdit}
+                  onChange={({ detail }) => setSub(detail.value)}
+                />
+                <Box padding={{ top: "xxs" }}>{zone}</Box>
+              </Grid>
+            </FormField>
 
-        {/* Value */}
-        <div>
-          <label className={label}>Value</label>
-          <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            rows={4}
-            placeholder={VALUE_HINT[type]}
-            className={field + " resize-y py-2"}
-            style={{ border: "1px solid var(--rz-borderstrong)", minHeight: 88 }}
-          />
-          <p className={help} style={{ color: MUTED }}>
-            {VALUE_HINT[type] || "Enter multiple values on separate lines."}
-          </p>
-        </div>
+            {/* Route 53 keys a record on name + type, so type is immutable once created. */}
+            <FormField label="Record type" info={info}>
+              <Select
+                disabled={isEdit}
+                selectedOption={TYPE_OPTIONS.find((o) => o.value === type) ?? { value: type, label: type }}
+                options={TYPE_OPTIONS}
+                onChange={({ detail }) => setType(detail.selectedOption.value as RecordType)}
+              />
+            </FormField>
+          </ColumnLayout>
 
-        {/* Routing policy (cosmetic) */}
-        <div>
-          <label className={label}>Routing policy</label>
-          <select
-            value={routing}
-            onChange={(e) => setRouting(e.target.value)}
-            className={field + " h-8"}
-            style={{ border: "1px solid var(--rz-borderstrong)" }}
+          <FormField
+            label="Value"
+            info={info}
+            constraintText="Enter multiple values on separate lines."
+            errorText={errors.value}
+            stretch
           >
-            <option>Simple</option>
-          </select>
-        </div>
+            <Textarea
+              rows={4}
+              value={value}
+              placeholder={recordTypeOption(type)?.placeholder}
+              onChange={({ detail }) => setValue(detail.value)}
+            />
+          </FormField>
 
-        {error && <p className="text-[12px]" style={{ color: ERROR }}>{error}</p>}
-      </div>
+          <ColumnLayout columns={2}>
+            <FormField
+              label="TTL (seconds)"
+              info={info}
+              constraintText={TTL_CONSTRAINT_TEXT}
+              errorText={errors.ttl}
+            >
+              {/* Quick-set chips share the control row with the input, as the console renders it. */}
+              <Grid gridDefinition={[{ colspan: 7 }, { colspan: 5 }]}>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={ttl}
+                  onChange={({ detail }) => setTtl(detail.value)}
+                />
+                <SpaceBetween direction="horizontal" size="xs">
+                  {TTL_PRESETS.map((p) => (
+                    <Button key={p.label} formAction="none" onClick={() => setTtl(String(p.seconds))}>
+                      {p.label}
+                    </Button>
+                  ))}
+                </SpaceBetween>
+              </Grid>
+            </FormField>
+
+            <FormField label="Routing policy" info={info}>
+              <Select
+                selectedOption={POLICY_OPTIONS.find((o) => o.value === routing) ?? { value: routing, label: routing }}
+                options={POLICY_OPTIONS}
+                onChange={({ detail }) => setRouting(detail.selectedOption.value ?? "Simple")}
+              />
+            </FormField>
+          </ColumnLayout>
+        </SpaceBetween>
+      </Form>
     </Modal>
   );
 }

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { applyMode, Mode } from "@cloudscape-design/global-styles";
+import { applyAwsConsoleTheme } from "@/lib/awsTheme";
 
 type Theme = "light" | "dark";
 
@@ -21,6 +22,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = (localStorage.getItem(STORAGE_KEY) as Theme | null) ?? "light";
     setTheme(stored);
+  }, []);
+
+  // Repaint Cloudscape's primary button in the console's orange. Token overrides are
+  // mode-independent, so this only needs to happen once, not per light/dark switch.
+  useEffect(() => {
+    applyAwsConsoleTheme();
   }, []);
 
   useEffect(() => {

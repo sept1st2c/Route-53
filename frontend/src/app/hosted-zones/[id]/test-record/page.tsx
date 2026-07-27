@@ -1,23 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Box from "@cloudscape-design/components/box";
+import Button from "@cloudscape-design/components/button";
+import Container from "@cloudscape-design/components/container";
+import ExpandableSection from "@cloudscape-design/components/expandable-section";
+import Form from "@cloudscape-design/components/form";
+import FormField from "@cloudscape-design/components/form-field";
+import Header from "@cloudscape-design/components/header";
+import Input from "@cloudscape-design/components/input";
+import KeyValuePairs from "@cloudscape-design/components/key-value-pairs";
+import Link from "@cloudscape-design/components/link";
+import Select, { type SelectProps } from "@cloudscape-design/components/select";
+import SpaceBetween from "@cloudscape-design/components/space-between";
+import StatusIndicator from "@cloudscape-design/components/status-indicator";
 import { AppShell } from "@/components/layout/AppShell";
-import { Button } from "@/components/ui/Button";
-import { InfoLink } from "@/components/ui/Container";
-import { zoneService, recordService } from "@/lib/services";
+import { recordService, zoneService } from "@/lib/services";
 import { apiError } from "@/lib/api";
 import { useNotify } from "@/context/NotificationContext";
-import { RECORD_TYPES, type HostedZone, type DNSRecord } from "@/types";
+import { RECORD_TYPES, type DNSRecord, type HostedZone } from "@/types";
 
-const INK = "var(--rz-ink)";
-const SECONDARY = "var(--rz-secondary)";
-const MUTED = "var(--rz-muted)";
-const LINK = "var(--rz-link)";
-const BORDER = "var(--rz-border)";
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
-
-const TYPE_DESC: Record<string, string> = {
+const TYPE_DESCRIPTIONS: Record<string, string> = {
   A: "Routes traffic to an IPv4 address and some AWS resources",
   AAAA: "Routes traffic to an IPv6 address and some AWS resources",
   CNAME: "Routes traffic to another domain name and to some AWS resources",
@@ -36,75 +40,44 @@ const TYPE_DESC: Record<string, string> = {
   SVCB: "Specifies parameters for connecting to a service",
 };
 
-const inputCls =
-  "mt-1 block w-full rounded-lg bg-[var(--rz-surface)] px-3 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]";
-const inputStyle = { height: 32, border: "1px solid var(--rz-borderstrong)" } as const;
+const TYPE_OPTIONS: SelectProps.Option[] = RECORD_TYPES.map((t) => ({
+  value: t,
+  label: TYPE_DESCRIPTIONS[t] ? `${t} – ${TYPE_DESCRIPTIONS[t]}` : t,
+}));
 
-function Caret() {
-  return (
-    <svg viewBox="0 0 16 16" width="14" height="14" fill={LINK} aria-hidden>
-      <path d="M8 11 4 5h8l-4 6Z" />
-    </svg>
-  );
+/** The backend caps `limit` at 100, so the whole zone is walked a page at a time. */
+const RECORDS_PAGE_SIZE = 100;
+const MAX_RECORD_PAGES = 20;
+
+const IPV4 = /^((25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
+const IPV6 = /^(([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|([0-9a-f]{1,4}:){1,7}:|([0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(:[0-9a-f]{1,4}){1,6}|:((:[0-9a-f]{1,4}){1,7}|:))$/i;
+/** A relative owner name: one or more DNS labels, optionally a leading wildcard. */
+const OWNER_NAME = /^(\*|_?[a-z0-9]([a-z0-9-]*[a-z0-9])?)(\.(_?[a-z0-9]([a-z0-9-]*[a-z0-9])?))*$/i;
+
+const isIp = (v: string) => IPV4.test(v) || IPV6.test(v);
+const normalize = (name: string) => name.replace(/\.$/, "").toLowerCase();
+
+type ResponseCode = "NOERROR" | "NXDOMAIN";
+
+type TestResponse = {
+  recordName: string;
+  recordType: string;
+  responseCode: ResponseCode;
+  /** Empty when the name exists but carries no record of the requested type (NODATA). */
+  recordData: string[];
+  protocol: "UDP";
+};
+
+/** Pull every record in the zone so a query can be resolved locally, name and type. */
+async function fetchAllRecords(zoneId: number): Promise<DNSRecord[]> {
+  const all: DNSRecord[] = [];
+  for (let page = 1; page <= MAX_RECORD_PAGES; page++) {
+    const data = await recordService.list(zoneId, { page, limit: RECORDS_PAGE_SIZE });
+    all.push(...data.items);
+    if (page >= data.pages) break;
+  }
+  return all;
 }
-
-function FieldLabel({ label, optional, info }: { label?: string; optional?: boolean; info?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <label className="text-[14px] font-bold" style={{ color: INK }}>
-        {label}
-        {optional && (
-          <i className="font-normal" style={{ color: MUTED }}>
-            {" "}
-            - <span className="italic">optional</span>
-          </i>
-        )}
-      </label>
-      {info && <InfoLink />}
-    </div>
-  );
-}
-
-function Card({
-  title,
-  optional,
-  info,
-  description,
-  children,
-}: {
-  title: string;
-  optional?: boolean;
-  info?: boolean;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-[16px] bg-[var(--rz-surface)]" style={{ border: `1px solid ${BORDER}` }}>
-      <div className="px-5 pb-2 pt-3">
-        <div className="flex items-center gap-2">
-          <h2 className="text-[20px] font-bold" style={{ letterSpacing: "-0.3px" }}>
-            {title}
-            {optional && (
-              <i className="font-normal" style={{ color: MUTED }}>
-                {" "}
-                - <span className="italic">optional</span>
-              </i>
-            )}
-          </h2>
-          {info && <InfoLink />}
-        </div>
-        {description && (
-          <p className="mt-1 text-[14px]" style={{ color: SECONDARY }}>
-            {description}
-          </p>
-        )}
-      </div>
-      <div className="px-5 pb-5 pt-1">{children}</div>
-    </section>
-  );
-}
-
-type Result = { found: boolean; record?: DNSRecord };
 
 export default function TestRecordPage() {
   const params = useParams();
@@ -114,13 +87,13 @@ export default function TestRecordPage() {
 
   const [zone, setZone] = useState<HostedZone | null>(null);
   const [recordName, setRecordName] = useState("");
-  const [type, setType] = useState("A");
+  const [type, setType] = useState<SelectProps.Option>(TYPE_OPTIONS[0]);
   const [resolverIp, setResolverIp] = useState("");
-  const [moreOpen, setMoreOpen] = useState(false);
   const [ednsIp, setEdnsIp] = useState("");
   const [subnetMask, setSubnetMask] = useState("");
-  const [result, setResult] = useState<Result | null>(null);
+  const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [response, setResponse] = useState<TestResponse | null>(null);
 
   useEffect(() => {
     zoneService
@@ -129,22 +102,72 @@ export default function TestRecordPage() {
       .catch((e) => notify({ type: "error", content: apiError(e, "Failed to load hosted zone") }));
   }, [zoneId, notify]);
 
-  const zoneName = zone?.name?.replace(/\.$/, "") ?? "…";
-  const backToRecords = () => router.push(`/hosted-zones/${zoneId}/records`);
+  const zoneName = zone ? zone.name.replace(/\.$/, "") : "…";
+  const recordsHref = `/hosted-zones/${zoneId}/records`;
 
-  // No real DNS query — we resolve against the records stored for this zone.
+  const errors = useMemo(() => {
+    const name = recordName.trim();
+    const resolver = resolverIp.trim();
+    const edns = ednsIp.trim();
+    const mask = subnetMask.trim();
+
+    const out: { recordName?: string; resolverIp?: string; ednsIp?: string; subnetMask?: string } = {};
+
+    if (name) {
+      if (name.endsWith(".")) {
+        out.recordName = "Enter the subdomain name excluding the domain name, without a trailing dot.";
+      } else if (!OWNER_NAME.test(name)) {
+        out.recordName = "Enter a valid subdomain name, for example www or www.dev.";
+      } else if (`${name}.${zoneName}`.length > 1024) {
+        out.recordName = "The record name can have up to 1024 characters.";
+      }
+    }
+    if (resolver && !isIp(resolver)) {
+      out.resolverIp = "Enter a valid IPv4 or IPv6 address, for example 192.0.2.25.";
+    }
+    if (edns && !isIp(edns)) {
+      out.ednsIp = "Enter a valid IPv4 or IPv6 address, for example 192.0.2.0.";
+    }
+    if (mask) {
+      if (!edns) {
+        out.subnetMask = "Specify an EDNS0 client subnet IP before you specify a subnet mask.";
+      } else if (!/^\d{1,3}$/.test(mask)) {
+        out.subnetMask = "Enter the number of bits to include in the DNS query.";
+      } else {
+        // Route 53 allows 0–32 bits for IPv4 and 0–128 for IPv6.
+        const max = IPV4.test(edns) ? 32 : 128;
+        if (Number(mask) > max) out.subnetMask = `Specify a value between 0 and ${max}.`;
+      }
+    }
+    return out;
+  }, [recordName, resolverIp, ednsIp, subnetMask, zoneName]);
+
+  const hasErrors = Object.keys(errors).length > 0;
+  const shown = submitted ? errors : {};
+
   const getResponse = async () => {
-    if (!zone) return;
+    setSubmitted(true);
+    if (!zone || hasErrors) return;
+
+    const queried = recordName.trim() ? `${recordName.trim()}.${zoneName}` : zoneName;
+    const recordType = String(type.value);
+
     setLoading(true);
-    setResult(null);
+    setResponse(null);
     try {
-      const target = recordName.trim() ? `${recordName.trim()}.${zoneName}` : zoneName;
-      const norm = (s: string) => s.replace(/\.$/, "").toLowerCase();
-      const data = await recordService.list(zoneId, { type, limit: 100 });
-      const match = data.items.find((r) => r.type === type && norm(r.name) === norm(target));
-      setResult({ found: !!match, record: match });
+      const records = await fetchAllRecords(zoneId);
+      const sameName = records.filter((r) => normalize(r.name) === normalize(queried));
+      const match = sameName.find((r) => r.type === recordType);
+      setResponse({
+        recordName: `${queried}.`,
+        recordType,
+        // A name that exists without the requested type is NODATA — still NOERROR in DNS.
+        responseCode: sameName.length > 0 ? "NOERROR" : "NXDOMAIN",
+        recordData: match ? match.value.split("\n").filter(Boolean) : [],
+        protocol: "UDP",
+      });
     } catch (e) {
-      notify({ type: "error", content: apiError(e, "Failed to test record") });
+      notify({ type: "error", content: apiError(e, "Failed to get a response for this record") });
     } finally {
       setLoading(false);
     }
@@ -152,196 +175,186 @@ export default function TestRecordPage() {
 
   return (
     <AppShell
+      contentType="form"
       breadcrumbs={[
         { label: "Route 53", href: "/dashboard" },
         { label: "Hosted zones", href: "/hosted-zones" },
-        { label: zoneName, href: `/hosted-zones/${zoneId}/records` },
+        { label: zoneName, href: recordsHref },
         { label: "Test record" },
       ]}
     >
-      <div style={{ fontFamily: FONT, color: INK }}>
-        {/* Title */}
-        <div className="mb-1 flex items-center gap-2">
-          <h1 className="text-[24px] font-bold" style={{ letterSpacing: "-0.48px" }}>Test record</h1>
-          <InfoLink />
-        </div>
-        <p className="mb-4 text-[14px]" style={{ color: SECONDARY }}>
-          Test records to simulate the values that Route 53 returns in response to DNS queries. This tool displays the
-          standard values that Route 53 provides based on the settings in the hosted zone. The tool doesn&rsquo;t send
-          actual DNS queries.
-        </p>
-
-        <div className="flex flex-col gap-5 pb-6">
-          {/* Record to test */}
-          <Card title="Record to test">
-            <div className="flex flex-col gap-5">
-              <div>
-                <div className="text-[14px] font-bold" style={{ color: INK }}>Hosted zone</div>
-                <div className="mt-0.5 text-[14px]" style={{ color: INK }}>{zoneName}</div>
-              </div>
-
-              <div>
-                <FieldLabel label="Record name" optional info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  To check a record that has the same name as the hosted zone {zoneName}, leave this field blank. To
-                  check the record for a subdomain, enter the subdomain name excluding the domain name.
-                </p>
-                <div className="relative mt-1">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: MUTED }}>
-                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-                      <path d="m11 11 4 4M7 12A5 5 0 1 0 7 2a5 5 0 0 0 0 10Z" strokeLinejoin="round" />
-                    </svg>
-                  </span>
-                  <input
-                    value={recordName}
-                    onChange={(e) => setRecordName(e.target.value)}
-                    placeholder="www"
-                    className={inputCls + " pl-9"}
-                    style={inputStyle}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <FieldLabel label="Record type" info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  The DNS type of the record determines the format of the value that Route 53 returns in response to DNS queries.
-                </p>
-                <div className="relative mt-1">
-                  <select
-                    value={type}
-                    onChange={(e) => setType(e.target.value)}
-                    className="block h-8 w-full appearance-none rounded-lg bg-[var(--rz-surface)] pl-3 pr-9 text-[14px] focus:outline-none focus:ring-2 focus:ring-[var(--rz-link)]"
-                    style={{ border: "1px solid var(--rz-borderstrong)", color: INK }}
-                  >
-                    {RECORD_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {TYPE_DESC[t] ? `${t} – ${TYPE_DESC[t]}` : t}
-                      </option>
-                    ))}
-                  </select>
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
-                    <Caret />
-                  </span>
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          {/* Settings to simulate DNS queries */}
-          <Card
-            title="Settings to simulate DNS queries"
-            optional
-            description="Simulate the response that Route 53 returns to a specific IP address. This is useful for testing geolocation and latency records."
+      <Form
+        header={
+          <Header
+            variant="h1"
+            info={<Link variant="info">Info</Link>}
+            description="Test records to simulate the values that Route 53 returns in response to DNS queries. This tool displays the standard values that Route 53 provides based on the settings in the hosted zone. The tool doesn't send actual DNS queries."
           >
-            <div className="flex flex-col gap-5">
-              <div>
-                <FieldLabel label="Resolver IP address" info />
-                <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                  The IP address that the tool uses to simulate the location of the DNS resolver that a client uses to
-                  make requests. If you omit this value, the tool uses the IP address of a DNS resolver in the AWS US
-                  East (N. Virginia) Region.
-                </p>
-                <input
-                  value={resolverIp}
-                  onChange={(e) => setResolverIp(e.target.value)}
-                  placeholder="192.0.2.25"
-                  className={inputCls}
-                  style={inputStyle}
-                />
-              </div>
-
-              {/* Additional configuration expander */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setMoreOpen((o) => !o)}
-                  className="flex items-center gap-2 text-[16px] font-bold"
-                  style={{ color: INK, letterSpacing: "-0.08px" }}
-                >
-                  <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden style={{ transform: moreOpen ? "none" : "rotate(-90deg)" }}>
-                    <path d="M8 11 4 5h8l-4 6Z" />
-                  </svg>
-                  Additional configuration
-                </button>
-
-                {moreOpen && (
-                  <div className="mt-3 flex flex-col gap-5">
-                    <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                      If the resolver supports EDNS0, specify an IP address and subnet mask for the client.
-                    </p>
-                    <div>
-                      <FieldLabel label="EDNS0 client subnet IP" info />
-                      <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                        The client subnet IP for an IP address in the applicable location. For example, 192.0.2.0.
-                      </p>
-                      <input
-                        value={ednsIp}
-                        onChange={(e) => setEdnsIp(e.target.value)}
-                        placeholder="192.0.2.0"
-                        className={inputCls}
-                        style={inputStyle}
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel label="Subnet mask" optional info />
-                      <p className="text-[12px] leading-4" style={{ color: MUTED }}>
-                        The subnet mask for the <b>EDNS0 client subnet IP</b>. For example, 24.
-                      </p>
-                      <input
-                        type="number"
-                        value={subnetMask}
-                        onChange={(e) => setSubnetMask(e.target.value)}
-                        placeholder="24"
-                        className={inputCls}
-                        style={inputStyle}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </Card>
-
-          {/* Response (after Get response) */}
-          {result && (
-            <Card title="Response">
-              <div className="grid grid-cols-1 gap-x-5 gap-y-4 md:grid-cols-2">
-                <Detail
-                  label="Response returned by Route 53"
-                  value={result.found ? result.record!.value : "No record found for this name and type."}
-                  mono={result.found}
-                />
-                <Detail label="Record type" value={type} />
-                <Detail label="Response code" value={result.found ? "NOERROR" : "NXDOMAIN"} />
-                <Detail label="Protocol" value="UDP" />
-              </div>
-            </Card>
-          )}
-        </div>
-
-        {/* Footer actions */}
-        <div className="flex justify-end gap-3 pb-6">
-          <Button variant="link" onClick={backToRecords}>Cancel</Button>
-          <Button variant="primary" onClick={getResponse} disabled={loading || !zone}>
-            {loading ? "Getting response…" : "Get response"}
-          </Button>
-        </div>
-      </div>
-    </AppShell>
-  );
-}
-
-function Detail({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div>
-      <div className="text-[14px] font-bold" style={{ color: INK }}>{label}</div>
-      <div
-        className={"mt-0.5 whitespace-pre-line break-all text-[14px]" + (mono ? " font-mono text-[13px]" : "")}
-        style={{ color: INK }}
+            Test record
+          </Header>
+        }
+        actions={
+          <SpaceBetween direction="horizontal" size="xs">
+            <Button variant="link" disabled={loading} onClick={() => router.push(recordsHref)}>
+              Cancel
+            </Button>
+            <Button variant="primary" loading={loading} disabled={!zone} onClick={getResponse}>
+              Get response
+            </Button>
+          </SpaceBetween>
+        }
       >
-        {value}
-      </div>
-    </div>
+        <SpaceBetween size="l">
+          <Container header={<Header variant="h2">Record to test</Header>}>
+            <SpaceBetween size="l">
+              <KeyValuePairs items={[{ label: "Hosted zone", value: zoneName }]} />
+
+              <FormField
+                label={
+                  <>
+                    Record name <i>- optional</i>
+                  </>
+                }
+                info={<Link variant="info">Info</Link>}
+                description={`To check a record that has the same name as the hosted zone ${zoneName}, leave this field blank. To check the record for a subdomain, enter the subdomain name excluding the domain name.`}
+                errorText={shown.recordName}
+              >
+                <Input
+                  type="search"
+                  value={recordName}
+                  onChange={({ detail }) => setRecordName(detail.value)}
+                  placeholder="www"
+                  invalid={!!shown.recordName}
+                  disableBrowserAutocorrect
+                />
+              </FormField>
+
+              <FormField
+                label="Record type"
+                info={<Link variant="info">Info</Link>}
+                description="The DNS type of the record determines the format of the value that Route 53 returns in response to DNS queries."
+              >
+                <Select
+                  selectedOption={type}
+                  options={TYPE_OPTIONS}
+                  onChange={({ detail }) => setType(detail.selectedOption)}
+                  selectedAriaLabel="Selected"
+                />
+              </FormField>
+            </SpaceBetween>
+          </Container>
+
+          <Container
+            header={
+              <Header
+                variant="h2"
+                description="Simulate the response that Route 53 returns to a specific IP address. This is useful for testing geolocation and latency records."
+              >
+                Settings to simulate DNS queries <i>- optional</i>
+              </Header>
+            }
+          >
+            <SpaceBetween size="l">
+              <FormField
+                label="Resolver IP address"
+                info={<Link variant="info">Info</Link>}
+                description="The IP address that the tool uses to simulate the location of the DNS resolver that a client uses to make requests. If you omit this value, the tool uses the IP address of a DNS resolver in the AWS US East (N. Virginia) Region."
+                errorText={shown.resolverIp}
+              >
+                <Input
+                  value={resolverIp}
+                  onChange={({ detail }) => setResolverIp(detail.value)}
+                  placeholder="192.0.2.25"
+                  invalid={!!shown.resolverIp}
+                  disableBrowserAutocorrect
+                />
+              </FormField>
+
+              <ExpandableSection headerText="Additional configuration">
+                <SpaceBetween size="l">
+                  <Box variant="small">
+                    If the resolver supports EDNS0, specify an IP address and subnet mask for the client.
+                  </Box>
+
+                  <FormField
+                    label="EDNS0 client subnet IP"
+                    info={<Link variant="info">Info</Link>}
+                    description="The client subnet IP for an IP address in the applicable location. For example, 192.0.2.0."
+                    errorText={shown.ednsIp}
+                  >
+                    <Input
+                      value={ednsIp}
+                      onChange={({ detail }) => setEdnsIp(detail.value)}
+                      placeholder="192.0.2.0"
+                      invalid={!!shown.ednsIp}
+                      disableBrowserAutocorrect
+                    />
+                  </FormField>
+
+                  <FormField
+                    label={
+                      <>
+                        Subnet mask <i>- optional</i>
+                      </>
+                    }
+                    info={<Link variant="info">Info</Link>}
+                    description="If you specified a value for EDNS0 client subnet IP, optionally enter the number of bits in the IP address that you want to include in the DNS requests. For example, if you specify 192.0.2.44 for EDNS0 client subnet IP and 24 for Subnet mask, this tool will simulate a request from 192.0.2.0/24. The default value is 24 bits for IPv4 addresses and 64 bits for IPv6 addresses."
+                    errorText={shown.subnetMask}
+                  >
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      value={subnetMask}
+                      onChange={({ detail }) => setSubnetMask(detail.value)}
+                      placeholder="24"
+                      invalid={!!shown.subnetMask}
+                    />
+                  </FormField>
+                </SpaceBetween>
+              </ExpandableSection>
+            </SpaceBetween>
+          </Container>
+
+          {response && (
+            <Container header={<Header variant="h2">Response returned by Route 53</Header>}>
+              <KeyValuePairs
+                columns={2}
+                items={[
+                  { label: "Record name", value: response.recordName },
+                  { label: "Record type", value: response.recordType },
+                  {
+                    label: "DNS response code",
+                    value:
+                      response.responseCode === "NOERROR" ? (
+                        <StatusIndicator type="success">NOERROR</StatusIndicator>
+                      ) : (
+                        <StatusIndicator type="error">NXDOMAIN</StatusIndicator>
+                      ),
+                  },
+                  { label: "Protocol", value: response.protocol },
+                  {
+                    label: "Value returned",
+                    value:
+                      response.recordData.length > 0 ? (
+                        <SpaceBetween size="xxxs">
+                          {response.recordData.map((v, i) => (
+                            <span key={i}>{v}</span>
+                          ))}
+                        </SpaceBetween>
+                      ) : (
+                        <Box color="text-status-inactive">
+                          {response.responseCode === "NXDOMAIN"
+                            ? "This hosted zone has no record with this name."
+                            : `This name exists in the hosted zone, but it has no ${response.recordType} record.`}
+                        </Box>
+                      ),
+                  },
+                ]}
+              />
+            </Container>
+          )}
+        </SpaceBetween>
+      </Form>
+    </AppShell>
   );
 }

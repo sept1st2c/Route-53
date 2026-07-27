@@ -70,7 +70,11 @@ class DNSRecord(Base):
     zone_id = Column(Integer, ForeignKey("hosted_zones.id", ondelete="CASCADE"), nullable=False)
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)
-    ttl = Column(Integer, nullable=True, default=300)
+    # No column default: SQLAlchemy applies one whenever the attribute is None at
+    # flush time, which silently rewrote the NULL that marks an alias record as 300.
+    # RecordCreate.ttl already defaults to 300 when the client omits it, so the only
+    # case the column default served is still covered.
+    ttl = Column(Integer, nullable=True)
     value = Column(Text, nullable=False)       # newline-separated for multi-value
     routing_policy = Column(String, default="Simple")
     comment = Column(Text, nullable=True)

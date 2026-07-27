@@ -48,29 +48,35 @@ def parse_zone_file(text: str, default_origin: str, default_ttl: int = 300) -> D
     errors: List[str] = []
 
     # 1) Pre-process: strip comments, then fold parenthesised multi-line records into one line.
-    logical_lines: List[str] = []
+    #    Each entry keeps whether the line that *started* the record was indented —
+    #    RFC 1035 uses that to mean "reuse the previous owner name", and the folded
+    #    text is stripped, so the indentation has to be captured before it is lost.
+    logical_lines: List[tuple[str, bool]] = []
     buffer = ""
+    buffer_indented = False
     depth = 0
     for raw in text.splitlines():
         line = _strip_comment(raw)
         if not line.strip() and depth == 0:
             continue
+        if not buffer:
+            buffer_indented = raw[:1].isspace()
         depth += line.count("(") - line.count(")")
         cleaned = line.replace("(", " ").replace(")", " ")
         buffer += (" " + cleaned) if buffer else cleaned
         if depth <= 0:
-            logical_lines.append(buffer.strip())
+            logical_lines.append((buffer.strip(), buffer_indented))
             buffer = ""
             depth = 0
     if buffer.strip():
-        logical_lines.append(buffer.strip())
+        logical_lines.append((buffer.strip(), buffer_indented))
 
     # 2) Parse each logical line.
     grouped: Dict[tuple, Dict] = {}
     order: List[tuple] = []
     last_name = origin
 
-    for line in logical_lines:
+    for line, starts_with_ws in logical_lines:
         if not line:
             continue
 
@@ -86,7 +92,6 @@ def parse_zone_file(text: str, default_origin: str, default_ttl: int = 300) -> D
                 ttl_default = int(parts[1])
             continue
 
-        starts_with_ws = line[0].isspace()
         tokens = line.split()
         if not tokens:
             continue

@@ -13,6 +13,7 @@ import CollectionPreferences, {
 } from "@cloudscape-design/components/collection-preferences";
 import Box from "@cloudscape-design/components/box";
 import Badge from "@cloudscape-design/components/badge";
+import Link from "@cloudscape-design/components/link";
 import FormField from "@cloudscape-design/components/form-field";
 import RadioGroup from "@cloudscape-design/components/radio-group";
 import Select from "@cloudscape-design/components/select";
@@ -28,11 +29,12 @@ import { Button as AwsButton } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { RecordForm } from "@/components/records/RecordForm";
 import { zoneService, recordService } from "@/lib/services";
-import { api, apiError } from "@/lib/api";
+import { apiError } from "@/lib/api";
+import { ROUTING_POLICY_VALUES } from "@/lib/routingPolicies";
 import { useNotify } from "@/context/NotificationContext";
 import { useDrawer } from "@/context/DrawerContext";
 import { useHotkey } from "@/lib/useHotkey";
-import { RECORD_TYPES, type DNSRecord, type HostedZone, type Paginated } from "@/types";
+import { RECORD_TYPES, type DNSRecord, type HostedZone } from "@/types";
 
 type Tab = "records" | "recovery" | "dnssec" | "tags";
 type SearchMode = "automatic" | "full" | "fast";
@@ -40,7 +42,8 @@ type Prefs = CollectionPreferencesProps.Preferences<SearchMode>;
 
 const PREFS_STORAGE_KEY = "r53-records-prefs";
 
-const ROUTING_POLICIES = ["Simple", "Weighted", "Latency", "Failover", "Geolocation"];
+/** Alias records are stored with no TTL — the alias target lives in `value`. */
+const isAlias = (r: DNSRecord) => r.ttl === null;
 
 /** Newline-separated record values are shown one per line, as the console does. */
 function RecordValue({ value }: { value: string }) {
@@ -54,7 +57,16 @@ function RecordValue({ value }: { value: string }) {
 }
 
 const COLUMN_DEFINITIONS: TableProps.ColumnDefinition<DNSRecord>[] = [
-  { id: "name", header: "Record name", sortingField: "name", width: 210, minWidth: 140, cell: (r) => r.name },
+  // The console displays record names without their trailing dot, even though it is
+  // stored (and sorted) fully qualified.
+  {
+    id: "name",
+    header: "Record name",
+    sortingField: "name",
+    width: 210,
+    minWidth: 140,
+    cell: (r) => r.name.replace(/\.$/, ""),
+  },
   { id: "type", header: "Type", sortingField: "type", width: 100, minWidth: 80, cell: (r) => r.type },
   {
     id: "routing_policy",
@@ -65,7 +77,7 @@ const COLUMN_DEFINITIONS: TableProps.ColumnDefinition<DNSRecord>[] = [
     cell: (r) => r.routing_policy || "Simple",
   },
   { id: "differentiator", header: "Differentiator", width: 150, minWidth: 100, cell: () => "-" },
-  { id: "alias", header: "Alias", width: 90, minWidth: 70, cell: () => "No" },
+  { id: "alias", header: "Alias", width: 90, minWidth: 70, cell: (r) => (isAlias(r) ? "Yes" : "No") },
   {
     id: "value",
     header: "Value/Route traffic to",
@@ -74,7 +86,15 @@ const COLUMN_DEFINITIONS: TableProps.ColumnDefinition<DNSRecord>[] = [
     minWidth: 160,
     cell: (r) => <RecordValue value={r.value} />,
   },
-  { id: "ttl", header: "TTL (seconds)", sortingField: "ttl", width: 140, minWidth: 100, cell: (r) => r.ttl ?? "-" },
+  // The console groups TTL digits using the viewer's locale, e.g. 172800 -> "172,800".
+  {
+    id: "ttl",
+    header: "TTL (seconds)",
+    sortingField: "ttl",
+    width: 140,
+    minWidth: 100,
+    cell: (r) => (r.ttl === null || r.ttl === undefined ? "-" : r.ttl.toLocaleString()),
+  },
   { id: "health_check_id", header: "Health check ID", width: 160, minWidth: 110, cell: () => "-" },
   { id: "evaluate_target_health", header: "Evaluate target health", width: 200, minWidth: 130, cell: () => "-" },
   { id: "record_id", header: "Record ID", width: 130, minWidth: 90, cell: () => "-" },
@@ -88,37 +108,6 @@ const DEFAULT_PREFS: Prefs = {
   visibleContent: ALL_COLUMN_IDS,
   custom: "automatic",
 };
-
-/**
- * Records list request. It goes straight to the API instead of through `recordService`
- * because sorting has to be resolved server-side — sorting only the current page would
- * reorder 10 rows out of the whole zone.
- */
-async function listRecords(
-  zoneId: number,
-  q: {
-    search: string;
-    type: string;
-    routingPolicy: string;
-    page: number;
-    limit: number;
-    sortBy: string;
-    sortOrder: "asc" | "desc";
-  }
-): Promise<Paginated<DNSRecord>> {
-  const { data } = await api.get<Paginated<DNSRecord>>(`/zones/${zoneId}/records`, {
-    params: {
-      search: q.search,
-      type: q.type,
-      routing_policy: q.routingPolicy,
-      page: q.page,
-      limit: q.limit,
-      sort_by: q.sortBy,
-      sort_order: q.sortOrder,
-    },
-  });
-  return data;
-}
 
 export default function RecordsPage() {
   const params = useParams();
@@ -204,10 +193,11 @@ export default function RecordsPage() {
   const loadRecords = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await listRecords(zoneId, {
+      const data = await recordService.list(zoneId, {
         search,
         type: typeFilter,
         routingPolicy: routingFilter,
+        alias: aliasFilter,
         page,
         limit: pageSize,
         sortBy: sortingColumn.sortingField ?? "name",
@@ -222,7 +212,18 @@ export default function RecordsPage() {
     } finally {
       setLoading(false);
     }
-  }, [zoneId, search, typeFilter, routingFilter, page, pageSize, sortingColumn, sortingDescending, notify]);
+  }, [
+    zoneId,
+    search,
+    typeFilter,
+    routingFilter,
+    aliasFilter,
+    page,
+    pageSize,
+    sortingColumn,
+    sortingDescending,
+    notify,
+  ]);
 
   useEffect(() => {
     loadZone();
@@ -242,12 +243,6 @@ export default function RecordsPage() {
 
   // The default zone-apex NS and SOA records are managed by Route 53 and can't be deleted.
   const isProtected = (r: DNSRecord) => r.type === "SOA" || (r.type === "NS" && r.name === zone?.name);
-
-  // Every record in this clone is non-alias, so "Alias" can never match and "Non-alias" matches all.
-  const aliasMatchesNothing = aliasFilter === "Alias";
-  const items = aliasMatchesNothing ? [] : records;
-  const matchCount = aliasMatchesNothing ? 0 : total;
-  const pageCount = aliasMatchesNothing ? 1 : pages;
 
   const appliedFilters = [
     typeFilter && { key: "type", label: `Type = ${typeFilter}`, clear: () => { setPage(1); setTypeFilter(""); } },
@@ -274,7 +269,9 @@ export default function RecordsPage() {
   const selectionHasProtected = selectedItems.some(isProtected);
 
   // Feed the split panel: one record → its details, otherwise the selection count.
-  const { setSplitData } = useDrawer();
+  // `detail` rather than `fields`, because the console puts an Edit record button above the
+  // pairs and AppShell renders `fields` on its own; the column reflow is done here instead.
+  const { setSplitData, splitPosition, openInfoDrawer } = useDrawer();
   const selectedCount = selectedItems.length;
   const selectedId = one?.id ?? null;
   useEffect(() => {
@@ -282,29 +279,20 @@ export default function RecordsPage() {
       count: selectedCount,
       noun: "record",
       detailTitle: "Record details",
-      fields: one
-        ? [
-            { label: "Record name", value: <Copyable text={one.name} /> },
-            { label: "Record type", value: one.type },
-            {
-              label: "Value",
-              value: (
-                <SpaceBetween size="xxs">
-                  {one.value.split("\n").map((v, i) => (
-                    <Copyable key={i} text={v} />
-                  ))}
-                </SpaceBetween>
-              ),
-            },
-            { label: "Alias", value: "No" },
-            { label: "TTL (seconds)", value: one.ttl ?? "-" },
-            { label: "Routing policy", value: one.routing_policy || "Simple" },
-          ]
-        : undefined,
+      detail: one ? (
+        <RecordDetails
+          record={one}
+          columns={splitPosition === "bottom" ? 3 : 1}
+          onEdit={() => {
+            setEditing(one);
+            setFormOpen(true);
+          }}
+        />
+      ) : null,
     });
     // `one` is derived from selectedId; excluded to avoid a re-render loop on its changing identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCount, selectedId, setSplitData]);
+  }, [selectedCount, selectedId, splitPosition, setSplitData]);
 
   const doDelete = async () => {
     setDeleting(true);
@@ -367,11 +355,13 @@ export default function RecordsPage() {
 
   const zoneName = zone?.name ?? "";
   const displayName = zoneName.replace(/\.$/, "");
+  // The console's counters show every record in the zone; filtering reports "n matches" instead.
+  const recordCount = zone?.record_count ?? total;
 
   const recordsTable = (
     <Table<DNSRecord>
       variant="container"
-      items={items}
+      items={records}
       columnDefinitions={COLUMN_DEFINITIONS}
       visibleColumns={prefs.visibleContent}
       trackBy="id"
@@ -397,22 +387,16 @@ export default function RecordsPage() {
       header={
         <Header
           variant="h2"
-          counter={`(${total})`}
-          description="Automatic mode is the current search behavior optimized for best filter results."
+          counter={selectedCount > 0 ? `(${selectedCount}/${recordCount})` : `(${recordCount})`}
+          info={<Link variant="info" onFollow={(e) => { e.preventDefault(); openInfoDrawer(); }}>Info</Link>}
+          description={
+            displayName
+              ? `The following table lists the existing records in ${displayName}. You can't delete the SOA record or the NS record named ${displayName}.`
+              : undefined
+          }
           actions={
             <SpaceBetween direction="horizontal" size="xs">
               <Button iconName="refresh" ariaLabel="Refresh records" onClick={refreshAll} />
-              <Button
-                disabled={!one}
-                onClick={() => {
-                  if (one) {
-                    setEditing(one);
-                    setFormOpen(true);
-                  }
-                }}
-              >
-                Edit record
-              </Button>
               <Button
                 disabled={selectedItems.length === 0 || selectionHasProtected}
                 disabledReason={
@@ -420,9 +404,10 @@ export default function RecordsPage() {
                 }
                 onClick={() => setDeleteOpen(true)}
               >
-                Delete record
+                {selectedItems.length > 1 ? "Delete records" : "Delete record"}
               </Button>
               <Button onClick={() => router.push(`/hosted-zones/${zoneId}/import`)}>Import zone file</Button>
+              {/* Not in the console's records toolbar, but exporting a zone file is a required feature. */}
               <Button onClick={() => setExportOpen(true)}>Export zone file</Button>
               <Button variant="primary" onClick={() => router.push(`/hosted-zones/${zoneId}/records/create`)}>
                 Create record
@@ -435,6 +420,12 @@ export default function RecordsPage() {
       }
       filter={
         <SpaceBetween size="xs">
+          {/* The console shows the current search mode above the filter row. Changing it is
+              done in this table's own preferences, so the sentence isn't a link here. */}
+          <Box variant="span" color="text-body-secondary">
+            Automatic mode is the current search behavior optimized for best filter results. To
+            change modes go to settings.
+          </Box>
           <div className="flex flex-wrap items-center gap-3">
             <div className="min-w-[240px] flex-1">
               <TextFilter
@@ -442,7 +433,7 @@ export default function RecordsPage() {
                 filteringText={search}
                 filteringPlaceholder="Filter records by property or value"
                 filteringAriaLabel="Filter records"
-                countText={search ? matchLabel(matchCount) : ""}
+                countText={search ? matchLabel(total) : ""}
                 onChange={({ detail }) => {
                   setPage(1);
                   setSearch(detail.filteringText);
@@ -463,7 +454,7 @@ export default function RecordsPage() {
               placeholder="Routing policy"
               width={170}
               value={routingFilter}
-              options={ROUTING_POLICIES}
+              options={[...ROUTING_POLICY_VALUES]}
               onChange={(v) => {
                 setPage(1);
                 setRoutingFilter(v);
@@ -481,7 +472,7 @@ export default function RecordsPage() {
             />
             {appliedFilters.length > 0 && (
               <Box variant="span" color="text-body-secondary">
-                {matchLabel(matchCount)}
+                {matchLabel(total)}
               </Box>
             )}
           </div>
@@ -513,7 +504,7 @@ export default function RecordsPage() {
       pagination={
         <Pagination
           currentPageIndex={page}
-          pagesCount={pageCount}
+          pagesCount={pages}
           onChange={({ detail }) => setPage(detail.currentPageIndex)}
         />
       }
@@ -604,6 +595,7 @@ export default function RecordsPage() {
         header={
           <Header
             variant="h1"
+            info={<Link variant="info" onFollow={(e) => { e.preventDefault(); openInfoDrawer(); }}>Info</Link>}
             actions={
               <SpaceBetween direction="horizontal" size="xs">
                 <Button onClick={() => setDeleteZoneOpen(true)}>Delete zone</Button>
@@ -679,7 +671,7 @@ export default function RecordsPage() {
             activeTabId={tab}
             onChange={({ detail }) => setTab(detail.activeTabId as Tab)}
             tabs={[
-              { id: "records", label: `Records (${total})`, content: recordsTable },
+              { id: "records", label: `Records (${recordCount})`, content: recordsTable },
               {
                 id: "recovery",
                 label: "Accelerated recovery",
@@ -847,6 +839,46 @@ function FilterSelect({
         expandToViewport
       />
     </div>
+  );
+}
+
+/**
+ * Split-panel body for a single selected record: the console's Record details panel, which
+ * leads with an Edit record button and copies record name and each value line.
+ */
+function RecordDetails({
+  record,
+  columns,
+  onEdit,
+}: {
+  record: DNSRecord;
+  columns: number;
+  onEdit: () => void;
+}) {
+  return (
+    <SpaceBetween size="l">
+      <Button onClick={onEdit}>Edit record</Button>
+      <KeyValuePairs
+        columns={columns}
+        items={[
+          { label: "Record name", value: <Copyable text={record.name.replace(/\.$/, "")} /> },
+          { label: "Record type", value: record.type },
+          {
+            label: "Value",
+            value: (
+              <SpaceBetween size="xxs">
+                {record.value.split("\n").map((v, i) => (
+                  <Copyable key={i} text={v} />
+                ))}
+              </SpaceBetween>
+            ),
+          },
+          { label: "Alias", value: isAlias(record) ? "Yes" : "No" },
+          { label: "TTL (seconds)", value: record.ttl === null ? "-" : record.ttl.toLocaleString() },
+          { label: "Routing policy", value: record.routing_policy || "Simple" },
+        ]}
+      />
+    </SpaceBetween>
   );
 }
 

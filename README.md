@@ -11,9 +11,25 @@ A functional clone of the **AWS Route 53** console with persistent storage and a
 | Layer     | Technology                          |
 | --------- | ----------------------------------- |
 | Frontend  | Next.js 15 (App Router) + TypeScript + Tailwind CSS |
+| UI        | [AWS Cloudscape Design System](https://cloudscape.design/) — the same component library the real console is built from |
 | Backend   | FastAPI (Python)                    |
 | Database  | SQLite (via SQLAlchemy ORM)         |
 | Auth      | JWT in an httpOnly cookie (mocked AWS sign-in) |
+| Tests     | pytest (backend), Playwright-driven verification (frontend) |
+
+### Why Cloudscape — and where it is deliberately *not* used
+
+The console shell and every data screen use real Cloudscape components (`AppLayoutToolbar`,
+`Table`, `CollectionPreferences`, `SplitPanel`, `SideNavigation`, `BreadcrumbGroup`, `Form`,
+`FormField`, `Tiles`, `TagEditor`, `AttributeEditor`, `KeyValuePairs`, …) rather than
+hand-rolled lookalikes, so behaviour — sorting, resizable columns, column visibility,
+split-panel docking, inline validation — matches the console instead of imitating it.
+
+Two areas are intentionally hand-built, because Cloudscape would be *less* accurate:
+
+- **The AWS sign-in / sign-up pages** use AWS's older standalone auth UI, not Cloudscape.
+- **The global top navigation** (account menu, Region picker, search, Amazon Q) is AWS's own
+  console header, not a Cloudscape component.
 
 ---
 
@@ -38,15 +54,31 @@ A functional clone of the **AWS Route 53** console with persistent storage and a
 - CNAME uniqueness is enforced per name
 
 ### Route 53 experience
-- Console-style **navigation** (top bar + breadcrumbs)
-- **Tables** with sortable headers, AWS-style **resizable columns** (drag the divider on a header's right edge), checkboxes and row selection
-- **Forms** for creating zones and records
-- **Search**, **filters** (type / routing policy / alias), and **pagination**
-- **Modals** for destructive confirmations, **toast notifications**, and a split-panel detail view
+- Console shell via Cloudscape **`AppLayoutToolbar`** — hamburger, breadcrumbs and drawer
+  triggers share one toolbar row, exactly as the console does
+- **Side navigation** with collapsible sections and exclusive active highlighting
+- **Tables** with real column **sorting** and **resizable columns**, row selection, and a
+  **Preferences** modal (page size, wrap lines, search mode, per-column visibility) whose
+  choices persist in `localStorage`
+- **Split panel** for row details, dockable **right or bottom** through its own preferences
+  modal; details reflow into three columns when docked at the bottom
+- Two right-side **drawers**: Info (help) and Operational troubleshooting
+- **Forms** with genuine **per-field inline validation** (red border + message under the
+  offending field), not a single generic error at the bottom
+- **Search**, **filters** (type / routing policy / alias), and **pagination** — all resolved
+  **server-side**, so sorting and filtering apply to the whole zone rather than the current page
+- **Modals** for destructive confirmations and **toast notifications**
 - All data persists in SQLite
 
 ### Mocked sections ("Coming Soon")
 Dashboard · Traffic Policies · Health Checks · Resolver · Profiles
+
+Also surfaced honestly rather than faked, because each needs an AWS service this clone has no
+counterpart for: the **Accelerated recovery**, **DNSSEC signing** and **Hosted zone tags** tabs;
+**query logging** (needs CloudWatch Logs); and the seven non-Simple **routing policies**, which
+are listed for fidelity but disabled, since there is nowhere to store the Weight / Record ID /
+failover role / Region they require. Nothing pretends to succeed and no user input is silently
+discarded.
 
 ### Bonus features
 | Bonus                       | Status |
@@ -54,7 +86,7 @@ Dashboard · Traffic Policies · Health Checks · Resolver · Profiles
 | Import DNS records from BIND zone files | ✅ Implemented (paste a zone file; SOA/apex-NS are skipped, duplicates merged) |
 | Export as JSON / BIND       | ✅ Implemented ("Export zone file" on the records page — downloads all records as a BIND zone file or JSON) |
 | Dark mode                   | ✅ Implemented (persisted in `localStorage`) |
-| Bulk operations             | ✅ Implemented (multi-select delete for records and zones) |
+| Bulk operations             | ✅ Implemented — multi-select delete for DNS records (the console selects hosted zones one at a time, with a radio, so that table matches it) |
 | Keyboard shortcuts          | ✅ Implemented — `?` shortcuts reference, `Alt+S` focus top search, `/` focus page filter, `c` create, `Esc` close any modal/menu |
 
 ---
@@ -114,6 +146,16 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440
 ```
 
+Copy `backend/.env.example` as a starting point. For a deployment also set:
+
+```env
+ENVIRONMENT=production                       # session cookie -> SameSite=None; Secure
+ALLOWED_ORIGINS=https://your-frontend.example # comma-separated CORS allowlist
+```
+
+Both matter once the frontend and API sit on different domains: a `SameSite=Lax` cookie is not
+sent on cross-site requests, and the CORS allowlist otherwise only contains localhost.
+
 Run the API:
 
 ```bash
@@ -144,6 +186,31 @@ npm run dev
 ```
 
 Open **http://localhost:3000**.
+
+### Running the tests
+
+```bash
+cd backend
+venv\Scripts\activate          # macOS/Linux: source venv/bin/activate
+pytest -q
+```
+
+Covers the BIND zone-file parser and the record schema validators. The parser suite locks in a
+real defect: because the folded logical line was stripped before its indentation was checked,
+RFC 1035 owner-name inheritance never applied, and a continuation line such as
+
+```
+www   IN A   192.0.2.1
+      IN A   192.0.2.2
+```
+
+imported its second value under a record literally named `IN.example.com.`.
+
+Type-check the frontend with:
+
+```bash
+cd frontend && npx tsc --noEmit
+```
 
 ### Demo credentials
 
@@ -249,6 +316,13 @@ Base URL: `http://localhost:8000/api` · Full interactive docs at `/api/docs`.
 | POST   | `/zones/{id}/records/import`      | Import records from a pasted BIND zone file       |
 | GET    | `/zones/{id}/export?format=json\|bind` | Export all of a zone's records as JSON or a BIND zone file |
 
+Both list endpoints resolve search, filtering, sorting and pagination **server-side**:
+`GET /zones` and `GET /zones/{id}/records` accept `sort_by` + `sort_order` (`asc`/`desc`, an
+invalid value is a 422), and the records endpoint additionally accepts `routing_policy` and
+`alias` filters. Sorting a zone therefore orders every record in it, not just the rows on the
+current page. `record_count` sorts via a correlated `COUNT` subquery, since it is a computed
+property rather than a column.
+
 ### Health
 | Method | Path          | Description           |
 | ------ | ------------- | --------------------- |
@@ -260,5 +334,21 @@ All zone/record endpoints require authentication and are scoped to the signed-in
 
 ## Notes & Known Gaps
 
-- Authentication is intentionally **mocked** for the assignment; IAM, Organizations, and Billing are not modeled.
-- Hosted zone **tags** are UI-only (not persisted to the backend yet).
+Deliberate, and surfaced in the UI rather than hidden:
+
+- Authentication is intentionally **mocked**; IAM, Organizations and Billing are not modeled.
+- Hosted zone **tags** and **VPC associations** are UI-only — the forms validate them against
+  the real AWS limits, but there is no table behind them yet, so they are not persisted.
+- **Non-Simple routing policies** are listed and disabled (see above). Supporting them means
+  storing `SetIdentifier`, `Weight`, failover role, `Region`, geolocation and CIDR collections,
+  plus the conditional sub-forms the console reveals for each.
+- **Alias records** are represented as a record with a `NULL` TTL and the target in `value`;
+  a dedicated `alias` / `alias_target` / `evaluate_target_health` model would be better.
+  Editing an existing record *into* an alias is not yet possible, because `RecordUpdate` cannot
+  distinguish "TTL omitted" from "TTL cleared".
+- **Deployment:** SQLite lives in a file next to the API, so a host with an ephemeral
+  filesystem resets the data on every redeploy. Mount a persistent volume and point
+  `DATABASE_URL` at it (e.g. `sqlite:////data/route53.db` — four slashes for an absolute path).
+- There is **no Alembic**; tables are created on startup and a small in-code migration in
+  `main.py` adds columns that arrived later. Fine at this size, but not how a real service
+  should evolve a schema.

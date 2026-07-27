@@ -168,7 +168,7 @@ export default function HostedZonesPage() {
   const one = selectedItems.length === 1 ? selectedItems[0] : null;
 
   // Feed the split panel: name servers for the single selected zone, then the detail.
-  const { setSplitData } = useDrawer();
+  const { setSplitData, openInfoDrawer } = useDrawer();
   const [ns, setNs] = useState<string[]>([]);
   const selectedId = one?.id ?? null;
 
@@ -269,7 +269,9 @@ export default function HostedZonesPage() {
           wrapLines={prefs.wrapLines}
           loading={loading}
           loadingText="Loading hosted zones"
-          selectionType="multi"
+          // The console lets you select a single hosted zone (a radio, no select-all),
+          // because every action here — View details, Edit, Delete — targets one zone.
+          selectionType="single"
           selectedItems={selectedItems}
           onSelectionChange={({ detail }) => setSelectedItems([...detail.selectedItems])}
           sortingColumn={sortingColumn}
@@ -281,13 +283,19 @@ export default function HostedZonesPage() {
           }}
           ariaLabels={{
             selectionGroupLabel: "Hosted zone selection",
-            allItemsSelectionLabel: () => "Select all",
             itemSelectionLabel: (_data, row) => `Select ${row.name}`,
           }}
           header={
             <Header
               variant="h1"
-              counter={`(${total})`}
+              // The console reports the selection as "(selected/total)" and falls back to
+              // the plain total when nothing is selected.
+              counter={selectedItems.length > 0 ? `(${selectedItems.length}/${total})` : `(${total})`}
+              info={
+                <Link variant="info" onFollow={(e) => { e.preventDefault(); openInfoDrawer(); }}>
+                  Info
+                </Link>
+              }
               description="Automatic mode is the current search behavior optimized for best filter results."
               actions={
                 <SpaceBetween direction="horizontal" size="xs">
@@ -315,6 +323,8 @@ export default function HostedZonesPage() {
           }
           filter={
             <TextFilter
+              // The "/" shortcut focuses this input by id.
+              controlId="page-filter-input"
               filteringText={search}
               filteringPlaceholder="Filter records by property or value"
               filteringAriaLabel="Filter hosted zones"

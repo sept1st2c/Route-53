@@ -1,9 +1,18 @@
 "use client";
 
-import { ReactNode, useEffect } from "react";
+import { ReactNode } from "react";
+import CloudscapeModal from "@cloudscape-design/components/modal";
+import Box from "@cloudscape-design/components/box";
 
-const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
-
+/**
+ * Thin adapter over Cloudscape's Modal.
+ *
+ * Cloudscape names the props `visible` / `onDismiss` / `header`; this keeps the
+ * repo's existing `open` / `onClose` / `title` shape so the call sites (delete
+ * confirmations, the export picker, the shortcuts reference) stay unchanged.
+ * Cloudscape supplies the focus trap, Escape handling, scroll locking and footer
+ * alignment that the previous hand-rolled dialog only approximated.
+ */
 export function Modal({
   open,
   title,
@@ -17,40 +26,21 @@ export function Modal({
   footer?: ReactNode;
   children: ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
+  // Cloudscape's Modal mounts a Portal even while hidden, and the placeholder it injects
+  // is absent from the server HTML — which produced a hydration mismatch on every page,
+  // since the shortcuts modal is always mounted by ShortcutsProvider. Rendering nothing
+  // until the dialog is actually opened avoids that and keeps closed dialogs out of the DOM.
   if (!open) return null;
+
   return (
-    <div className="fixed inset-0 z-[100] flex items-start justify-center" style={{ fontFamily: FONT }}>
-      <div className="absolute inset-0" style={{ backgroundColor: "rgba(15,20,26,0.5)" }} onClick={onClose} />
-      <div
-        className="relative z-10 mt-[12vh] w-full max-w-[560px] rounded-[16px] bg-[var(--rz-surface)]"
-        style={{ boxShadow: "0 4px 20px 1px rgba(0,7,22,0.2)" }}
-        role="dialog"
-        aria-modal
-      >
-        <div className="flex items-start justify-between px-6 pt-5">
-          <h2 className="text-[18px] font-bold" style={{ color: "var(--rz-ink)", letterSpacing: "-0.18px" }}>
-            {title}
-          </h2>
-          <button onClick={onClose} aria-label="Close" style={{ color: "var(--rz-secondary)" }} className="p-1">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
-              <path d="M3 3l10 10M13 3 3 13" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-        <div className="px-6 py-4 text-[14px]" style={{ color: "var(--rz-ink)" }}>
-          {children}
-        </div>
-        {footer && <div className="flex justify-end gap-3 px-6 pb-5 pt-1">{footer}</div>}
-      </div>
-    </div>
+    <CloudscapeModal
+      visible={open}
+      onDismiss={onClose}
+      header={title}
+      closeAriaLabel="Close"
+      footer={footer ? <Box float="right">{footer}</Box> : undefined}
+    >
+      {children}
+    </CloudscapeModal>
   );
 }

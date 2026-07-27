@@ -129,27 +129,9 @@
   }
 }
 
-/* Thin AWS-style scrollbars.
-   Cloudscape's scroll regions (the AppLayout side navigation, split panel and
-   wide tables) rely on the platform scrollbar. `--border` was too low-contrast
-   to see against our surfaces, which made the side nav look truncated rather
-   than scrollable, so the thumb is driven by the stronger border token and
-   themed for both light and dark. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--rz-borderstrong) transparent;
-}
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--rz-borderstrong);
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--rz-muted);
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbars are deliberately left unstyled.
+   Neither @cloudscape-design/components nor global-styles touches scrollbars, so
+   the real console renders the platform's native bar — thin at rest, thickening
+   on hover. A `::-webkit-scrollbar` override replaces that with a fixed-width
+   always-thick bar, which is what made our side navigation look wrong next to
+   the console. Styling them back is a regression, not an improvement. */
