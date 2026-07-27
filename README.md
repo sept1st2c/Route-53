@@ -35,25 +35,10 @@ The sign-in form offers these credentials directly, so there is nothing to type.
 | Layer     | Technology                          |
 | --------- | ----------------------------------- |
 | Frontend  | Next.js 15 (App Router) + TypeScript + Tailwind CSS |
-| UI        | [AWS Cloudscape Design System](https://cloudscape.design/) — the same component library the real console is built from |
 | Backend   | FastAPI (Python)                    |
 | Database  | SQLite (via SQLAlchemy ORM)         |
 | Auth      | JWT in an httpOnly cookie (mocked AWS sign-in) |
-| Tests     | pytest (backend), Playwright-driven verification (frontend) |
-
-### Why Cloudscape — and where it is deliberately *not* used
-
-The console shell and every data screen use real Cloudscape components (`AppLayoutToolbar`,
-`Table`, `CollectionPreferences`, `SplitPanel`, `SideNavigation`, `BreadcrumbGroup`, `Form`,
-`FormField`, `Tiles`, `TagEditor`, `AttributeEditor`, `KeyValuePairs`, …) rather than
-hand-rolled lookalikes, so behaviour — sorting, resizable columns, column visibility,
-split-panel docking, inline validation — matches the console instead of imitating it.
-
-Two areas are intentionally hand-built, because Cloudscape would be *less* accurate:
-
-- **The AWS sign-in / sign-up pages** use AWS's older standalone auth UI, not Cloudscape.
-- **The global top navigation** (account menu, Region picker, search, Amazon Q) is AWS's own
-  console header, not a Cloudscape component.
+| Tests     | pytest (backend), Playwright-driven UI verification |
 
 ---
 
@@ -78,8 +63,8 @@ Two areas are intentionally hand-built, because Cloudscape would be *less* accur
 - CNAME uniqueness is enforced per name
 
 ### Route 53 experience
-- Console shell via Cloudscape **`AppLayoutToolbar`** — hamburger, breadcrumbs and drawer
-  triggers share one toolbar row, exactly as the console does
+- **Console shell** where the hamburger, breadcrumbs and panel triggers share one toolbar row,
+  as the real console does, with the layout pinned so nothing scrolls out from under the header
 - **Side navigation** with collapsible sections and exclusive active highlighting
 - **Tables** with real column **sorting** and **resizable columns**, row selection, and a
   **Preferences** modal (page size, wrap lines, search mode, per-column visibility) whose
@@ -115,29 +100,57 @@ discarded.
 
 ---
 
+## Requirements Coverage
+
+Every item in the assignment brief, and where to find it.
+
+| Requirement | Status | Where |
+| ----------- | ------ | ----- |
+| **Authentication** — login, logout, session persistence | ✅ | `/login`, account menu → Sign out; JWT survives refresh |
+| IAM / Accounts / Billing mocked | ✅ | Root **and** IAM user sign-in flows; account menu, Region picker |
+| **Hosted Zones** — view, search, create, edit, delete | ✅ | `/hosted-zones`, `/hosted-zones/create`, `…/edit` |
+| **DNS Records** — view, search, create, edit, delete | ✅ | `…/records`, `…/records/create`, edit dialog |
+| Record types — A, AAAA, CNAME, TXT, MX, NS, PTR, SRV, CAA | ✅ | All 9 required, plus SPF, NAPTR, DS, TLSA, SSHFP, HTTPS, SVCB |
+| All data persists in SQLite | ✅ | `backend/route53.db` via SQLAlchemy |
+| Navigation structure | ✅ | Top bar, side navigation, breadcrumbs |
+| Tables | ✅ | Sorting, resizable columns, selection, column visibility |
+| Forms | ✅ | Per-field inline validation on every create/edit form |
+| Search · Filters · Pagination | ✅ | All server-side, across the whole result set |
+| Modals · Notifications | ✅ | Delete confirmations, export picker, preferences; toasts |
+| Mocked "Coming Soon" sections | ✅ | Dashboard, Traffic Policies, Health Checks, Resolver, Profiles |
+| **Bonus** — BIND import · JSON/BIND export · dark mode · keyboard shortcuts · bulk ops | ✅ 5/5 | See the table above |
+| **Deliverables** — `frontend/` + `backend/` · README · hosted demo | ✅ | This repo; [live demo](#live-demo) |
+
+---
+
 ## Project Structure
 
 ```
 route53-clone/
 ├── backend/
-│   └── app/
-│       ├── main.py            # FastAPI app, CORS, startup, migrations, health
-│       ├── database.py        # SQLAlchemy engine / session / Base
-│       ├── models.py          # User, HostedZone, DNSRecord
-│       ├── schemas.py         # Pydantic request/response models
-│       ├── routes/
-│       │   ├── auth.py        # login / register / logout / me
-│       │   ├── zones.py       # hosted zone CRUD
-│       │   └── records.py     # record CRUD + bulk delete + import
-│       └── services/
-│           └── bind_parser.py # BIND zone file parser
-└── frontend/
-    └── src/
-        ├── app/               # Next.js routes (pages)
-        ├── components/        # layout, ui, records, brand
-        ├── context/           # Auth, Theme, Notification, Drawer
-        ├── lib/               # api client + services
-        └── types/             # shared TypeScript types
+│   ├── app/
+│   │   ├── main.py             # FastAPI app, CORS, startup, migrations, health
+│   │   ├── database.py         # SQLAlchemy engine / session / Base
+│   │   ├── models.py           # User, HostedZone, DNSRecord
+│   │   ├── schemas.py          # request/response models + per-type record validation
+│   │   ├── routes/
+│   │   │   ├── auth.py         # login / register / logout / me
+│   │   │   ├── zones.py        # hosted zone CRUD + export
+│   │   │   └── records.py      # record CRUD + bulk delete + import
+│   │   └── services/
+│   │       ├── bind_parser.py  # BIND zone file parser
+│   │       └── demo_seed.py    # idempotent demo zones/records
+│   ├── tests/                  # pytest: parser, schemas, record routes, seeding
+│   ├── requirements.txt
+│   └── Procfile                # uvicorn bound to $PORT for hosting
+├── frontend/
+│   └── src/
+│       ├── app/                # Next.js routes (login, signup, hosted-zones, …)
+│       ├── components/         # layout (AppShell, nav, top bar), ui, records, brand
+│       ├── context/            # Auth, Theme, Notification, Drawer, Shortcuts
+│       ├── lib/                # api client, services, DNS validation, hotkeys
+│       └── types/              # shared TypeScript types
+└── render.yaml                 # one-click backend deploy config
 ```
 
 ---
@@ -257,9 +270,13 @@ Or create a new account from the sign-up page.
 └─────────────────────────┘  JSON   └──────────────────────────┘         └──────────┘
 ```
 
-- **Frontend** — Next.js App Router. A thin Axios client (`lib/api.ts`) wraps the API; typed service modules (`lib/services.ts`) expose `authService`, `zoneService`, `recordService`. React Context provides auth state, theme, notifications, and the split-panel drawer. Tailwind + CSS variables (`--rz-*`) drive the AWS look and dark mode.
-- **Backend** — FastAPI with three routers (auth, zones, records). Auth issues a JWT and sets it as an httpOnly cookie; protected endpoints resolve the current user from the cookie or `Authorization: Bearer` header. Every zone/record query is scoped to the authenticated owner, so accounts are isolated.
-- **Database** — SQLAlchemy ORM over SQLite. Tables are created on startup; a lightweight in-code migration adds the `owner_id` column to existing databases.
+- **Frontend** — Next.js App Router. A thin Axios client (`lib/api.ts`) wraps the API and attaches the session token; typed service modules (`lib/services.ts`) expose `authService`, `zoneService`, `recordService`, so no page talks to HTTP directly. React Context supplies auth state, theme, notifications and the details-panel state. One shared `AppShell` renders the console chrome — top bar, side navigation, breadcrumbs, notifications, details panel — and every console page is just content inside it. Record-value rules live in one module (`lib/dnsValidation.ts`) that both the create page and the edit dialog use, so validation can't drift between them.
+- **Backend** — FastAPI with three routers (auth, zones, records). Auth issues a JWT and sets it as an httpOnly cookie; protected endpoints resolve the current user from the cookie or an `Authorization: Bearer` header. Every zone and record query is scoped to the authenticated owner, so accounts are fully isolated. Request models in `schemas.py` validate record data per DNS type — the same rules the UI enforces — and the route layer adds the checks that need a database lookup: the managed apex NS/SOA records can't be modified or deleted, a CNAME can't sit at the zone apex or share a name with another record, and `(zone, name, type)` is unique.
+- **Database** — SQLAlchemy ORM over SQLite. Tables are created on startup, a small in-code migration backfills the `owner_id` column on older databases, and the demo account is seeded with example zones if it has none.
+
+**Request flow** — a page calls a service method → Axios sends the request with the session token → FastAPI resolves the user, validates the payload, and scopes the query to that owner → SQLAlchemy reads or writes SQLite → the JSON response updates the table, and a toast reports success or the API's error message.
+
+Searching, filtering, sorting and pagination are all resolved **server-side**, so sorting a zone orders every record in it rather than reordering the handful of rows currently on screen.
 
 ---
 
