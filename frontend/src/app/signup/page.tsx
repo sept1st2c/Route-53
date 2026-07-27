@@ -14,8 +14,23 @@ const LINK = "#0073bb";
 const BORDER = "#eaeded";
 const FONT = '"Amazon Ember", "Helvetica Neue", Roboto, Arial, sans-serif';
 
+// Mirrors the sign-in page: AWS's standalone auth UI renders secondary buttons as
+// the blue link button. Both pages share this chrome, so keep the two in step.
+const SECONDARY = LINK;
+
 const CARD_SHADOW =
   "0 1px 1px 0 rgba(0,28,36,0.3), 1px 1px 1px 0 rgba(0,28,36,0.15), -1px 1px 1px 0 rgba(0,28,36,0.15)";
+
+// Cloudscape's global styles ship normalize.css unlayered, which outranks Tailwind's
+// layered utilities — so `button { line-height: 1.15 }` beats leading utilities and
+// padding-centred labels sit high. Flex centring is immune to it.
+const BTN =
+  "inline-flex h-8 w-full items-center justify-center rounded-[2px] font-bold tracking-[0.25px]";
+
+// AWS rotates this content-hashed filename, so the URL eventually 404s. The panel
+// hides itself on error rather than leaving a broken image on the page.
+const MARKETING_SRC =
+  "https://d1.awsstatic.com/onedam/marketing-channels/website/aws/en_US/homepage/console-sign-in/ai-implementation-2026.ded0f707cdac0eb150ecb0a172bc25918e792af6.png";
 
 function Caret() {
   return (
@@ -40,8 +55,8 @@ function Field({
       )}
       <input
         {...props}
-        className="mt-1 w-full rounded-[2px] bg-white px-2 py-1 outline-none focus:border-[#0073bb] focus:ring-1 focus:ring-[#0073bb]"
-        style={{ border: `1px solid ${GREY}`, height: 32 }}
+        className="mt-1 h-8 w-full rounded-[2px] bg-white px-2 outline-none placeholder:italic placeholder:text-[#687078] focus:border-[#0073bb] focus:ring-1 focus:ring-[#0073bb]"
+        style={{ border: `1px solid ${GREY}` }}
       />
     </div>
   );
@@ -57,6 +72,7 @@ export default function SignUpPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [showMarketing, setShowMarketing] = useState(true);
 
   useEffect(() => {
     if (!loading && user) router.replace("/hosted-zones");
@@ -99,10 +115,13 @@ export default function SignUpPage() {
       </header>
 
       {/* Main */}
-      <main className="flex flex-1 justify-center px-4">
-        <div className="flex gap-6">
+      {/* Centred with auto margins, not `flex justify-center` on <main>: normalize's
+          unlayered `main { display: block }` (from Cloudscape's global styles) outranks
+          Tailwind's layered `.flex`, which pinned the group to the left edge. */}
+      <main className="flex-1 px-4">
+        <div className="mx-auto flex w-fit gap-6">
           {/* Sign-up card + legal */}
-          <div className="flex w-[340px] flex-col gap-3">
+          <div className="flex w-[340px] shrink-0 flex-col gap-3">
             <div
               className="rounded-[2px] bg-white"
               style={{ boxShadow: CARD_SHADOW, borderTop: `1px solid ${BORDER}`, color: INK }}
@@ -153,7 +172,7 @@ export default function SignUpPage() {
                 </div>
 
                 {error && (
-                  <p className="mt-3 text-[12px]" style={{ color: "#d91515" }}>
+                  <p className="mt-3 text-[12px] leading-[16px]" style={{ color: "#d91515" }}>
                     {error}
                   </p>
                 )}
@@ -162,8 +181,8 @@ export default function SignUpPage() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full rounded-[2px] py-1 text-center font-bold tracking-[0.25px] disabled:opacity-60"
-                    style={{ backgroundColor: ORANGE, color: INK, height: 32 }}
+                    className={`${BTN} disabled:opacity-60`}
+                    style={{ backgroundColor: ORANGE, color: INK }}
                   >
                     {submitting ? "Creating account…" : "Sign up"}
                   </button>
@@ -179,8 +198,8 @@ export default function SignUpPage() {
                   <button
                     type="button"
                     onClick={() => router.push("/login")}
-                    className="w-full rounded-[2px] bg-white py-1 text-center font-bold tracking-[0.25px]"
-                    style={{ border: `1px solid ${SLATE}`, color: SLATE, height: 32 }}
+                    className={`${BTN} bg-white`}
+                    style={{ border: `1px solid ${SECONDARY}`, color: SECONDARY }}
                   >
                     Sign in to an existing account
                   </button>
@@ -188,7 +207,9 @@ export default function SignUpPage() {
               </form>
             </div>
 
-            <small className="text-[12px] leading-[16px]" style={{ color: GREY }}>
+            {/* Not a <small>: normalize's unlayered `small { font-size: 80% }` overrides
+                Tailwind's text utility, so the legal copy would not render at 12px. */}
+            <p className="text-[12px] leading-[16px]" style={{ color: GREY }}>
               By continuing, you agree to{" "}
               <a href="#" style={{ color: LINK, textDecoration: "underline" }}>
                 AWS Customer Agreement
@@ -202,26 +223,29 @@ export default function SignUpPage() {
                 Cookie Notice
               </a>{" "}
               for more information.
-            </small>
+            </p>
           </div>
 
           {/* AWS marketing image (matches the live console sign-in page) */}
-          <aside className="hidden w-[570px] lg:block">
-            <a
-              href="https://aws.amazon.com/ai/implementation/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="https://d1.awsstatic.com/onedam/marketing-channels/website/aws/en_US/homepage/console-sign-in/ai-implementation-2026.ded0f707cdac0eb150ecb0a172bc25918e792af6.png"
-                alt="Amazon Web Services Marketing"
-                width={570}
-                className="block w-[570px]"
-              />
-            </a>
-          </aside>
+          {showMarketing && (
+            <aside className="hidden w-[570px] shrink-0 lg:block">
+              <a
+                href="https://aws.amazon.com/ai/implementation/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={MARKETING_SRC}
+                  alt="Amazon Web Services Marketing"
+                  width={570}
+                  className="block w-[570px]"
+                  onError={() => setShowMarketing(false)}
+                />
+              </a>
+            </aside>
+          )}
         </div>
       </main>
 
