@@ -1,5 +1,15 @@
 # 05 — Frontend Overview
 
+> ### TL;DR — the 5 things you must be able to say
+>
+> 1. **Next.js 15 App Router, and nearly everything is a client component** — the pages are interactive and personalised, so hooks and event handlers are unavoidable.
+> 2. **`AppShell` is the whole chrome *and* the auth guard** — it redirects to `/login` and renders a blank canvas while loading, so protected content never flashes.
+> 3. **Five React contexts, no Redux, no React Query, no form library.** State, fetching and validation are all hand-rolled — a deliberate call for an app this size.
+> 4. **Dark mode is three coordinated pieces**, and the inline pre-paint script in `layout.tsx` is what prevents a flash of the wrong theme.
+> 5. **`Modal` returns `null` when closed** — the fix for a hydration mismatch that fired on every page.
+>
+> **Read** §1–§5 and §7–§9, plus §11 (~18 min). **Look up** everything under 🔎 Reference.
+
 > Source of truth: everything under `frontend/src` plus `frontend/package.json`.
 > Every claim below carries a `file:line`. Nothing here is inferred from memory.
 
@@ -129,34 +139,6 @@ page and distinguishes them by `?section=` — see the `href`s in
 > (`frontend/src/components/layout/AppShell.tsx:121`). If asked, say: the boundary was
 > added where the build demanded it, and the nav's call is inside a subtree that is already
 > client-rendered end to end. I did not run `next build` to confirm the nav is exempt.
-
----
-
-## 3. Route inventory
-
-| URL | File | What it is |
-|---|---|---|
-| `/` | `frontend/src/app/page.tsx` | Entry redirect — `/hosted-zones` if signed in, else `/login` (`:12-15`) |
-| `/login` | `frontend/src/app/login/page.tsx` | Pixel-faithful AWS sign-in: user-type step → credentials step, root **and** IAM flows, demo-credentials button (`:178-185`) |
-| `/signup` | `frontend/src/app/signup/page.tsx` | AWS "Sign up for AWS" card → `register()` (`:81-97`) |
-| `/dashboard` | `frontend/src/app/dashboard/page.tsx` | `<ComingSoon>` placeholder (6 lines) |
-| `/hosted-zones` | `frontend/src/app/hosted-zones/page.tsx` | **Main list.** Server-side search/sort/paginate, single-select, split panel, delete modal |
-| `/hosted-zones/create` | `frontend/src/app/hosted-zones/create/page.tsx` | Create zone: domain-name validation, Public/Private tiles, mock VPC rows, tag editor |
-| `/hosted-zones/:id/records` | `frontend/src/app/hosted-zones/[id]/records/page.tsx` | **Biggest page (918 lines).** Records table, 4 filters, multi-select, bulk delete, export, edit-in-split-panel, 4 tabs |
-| `/hosted-zones/:id/records/create` | `frontend/src/app/hosted-zones/[id]/records/create/page.tsx` | "Quick create record" — N repeatable record blocks, alias toggle, per-block validation |
-| `/hosted-zones/:id/edit` | `frontend/src/app/hosted-zones/[id]/edit/page.tsx` | Edit zone description (everything else is immutable, `:148-157`) |
-| `/hosted-zones/:id/import` | `frontend/src/app/hosted-zones/[id]/import/page.tsx` | BIND zone-file import with a **client-side RFC 1035 parser** and live preview table |
-| `/hosted-zones/:id/test-record` | `frontend/src/app/hosted-zones/[id]/test-record/page.tsx` | Simulated DNS query — resolves NOERROR/NXDOMAIN/NODATA locally (`:148-174`) |
-| `/hosted-zones/:id/query-logging` | `frontend/src/app/hosted-zones/[id]/query-logging/page.tsx` | Faithful console form that honestly refuses (needs CloudWatch, `:28-29`) |
-| `/health-checks` | `frontend/src/app/health-checks/page.tsx` | `<ComingSoon>` |
-| `/profiles` | `frontend/src/app/profiles/page.tsx` | `<ComingSoon>` |
-| `/resolver?section=…` | `frontend/src/app/resolver/page.tsx` | 11 mocked Resolver sections behind one route |
-| `/traffic-policies?section=…` | `frontend/src/app/traffic-policies/page.tsx` | 2 mocked Traffic-flow sections |
-
-Real CRUD lives in exactly 6 of these 16 routes. The other 10 are chrome, auth, or honest
-placeholders — a deliberate choice: `ComingSoon`
-(`frontend/src/components/layout/ComingSoon.tsx:15-43`) keeps the full console shell and
-says the feature isn't built, rather than offering a dead button.
 
 ---
 
@@ -357,55 +339,6 @@ depend on them safely.
 
 None of those are true today, which is why Context was the right call — and the honest
 follow-up is: *"If I added one library, it would be TanStack Query, not Redux."*
-
----
-
-## 6. Component inventory
-
-### `components/layout/` — the console chrome
-
-| File | Lines | What it does |
-|---|---|---|
-| `AppShell.tsx` | 200 | The shell + auth guard. See §4 |
-| `TopNav.tsx` | 499 | The black AWS bar: logo, Amazon Q, services grid, cosmetic global search (`:224-235`), CloudShell, notifications bell, Help menu, Settings menu (contains the **theme switch**, `:314-330`), Regions menu, account menu with **Sign out** (`:486-491`). All icons are hand-written inline SVG (`:25-103`) |
-| `ConsoleSideNav.tsx` | 117 | Cloudscape `SideNavigation`. `resolveActiveHref` (`:92-98`) keeps "Hosted zones" highlighted on detail routes and disambiguates the `?section=` pages |
-| `ConsoleFooter.tsx` | 34 | 26px dark footer strip. The only file in `components/` with no `"use client"` — it has no hooks |
-| `Drawers.tsx` | 143 | `HelpContent` (Info drawer body, with a "Was this helpful?" toggle at `:33`) and `ToolsContent` (Operational troubleshooting, two tabs that honestly say CloudWatch isn't implemented) |
-| `ComingSoon.tsx` | 43 | The placeholder screen, wrapped in a full `AppShell` so only the main panel is empty |
-
-### `components/ui/` — small shared primitives
-
-| File | Lines | What it does |
-|---|---|---|
-| `Modal.tsx` | 46 | Adapter over Cloudscape `Modal` that renames the props to `open`/`onClose`/`title` **and returns `null` when closed** — see §7 |
-| `Flashbar.tsx` | 28 | Renders `NotificationContext.flashes` into Cloudscape's `Flashbar`; returns `null` when empty (`:13`) |
-| `Button.tsx` | 41 | Hand-rolled Tailwind pill button (primary/normal/link) used **only inside modal footers**, e.g. `hosted-zones/page.tsx:427-432`. Everywhere else uses Cloudscape's `Button` |
-| `TagEditor.tsx` | 76 | Controlled wrapper over Cloudscape `TagEditor` with the full Route 53 i18n string set and a 50-tag cap (`:12`). `onChange` hands back `(tags, valid)` so the parent form can block submit |
-| `KeyboardShortcutsModal.tsx` | 37 | Five-row reference table, always mounted by `ShortcutsProvider` |
-
-### `components/records/`
-
-| File | Lines | What it does |
-|---|---|---|
-| `RecordForm.tsx` | 232 | The **edit-a-record** modal. Uses Cloudscape's `Modal` directly, not `ui/Modal`. Disables Record name and Record type when editing (`:162`, `:172`) because Route 53 keys a record on name+type |
-
-### `components/brand/`
-
-| File | Lines | What it does |
-|---|---|---|
-| `AwsLogo.tsx` | 51 | Inline SVG recreation of the "aws" wordmark + orange smile, used on `/login` and `/signup`. No external image dependency |
-
-### `lib/` — non-component logic
-
-| File | Lines | What it does |
-|---|---|---|
-| `api.ts` | 44 | axios instance, request interceptor, token cookie helpers, `apiError()` |
-| `services.ts` | 137 | `authService`, `zoneService`, `recordService` — the whole API surface |
-| `dnsValidation.ts` | 447 | Per-record-type rdata validation transcribed from the Route 53 developer guide (`:1-6` cites the exact AWS doc pages). Includes a hand-written IPv6 parser (`:129-161`) and a quote-aware tokenizer (`:190-227`) |
-| `routingPolicies.ts` | 51 | Typed routing-policy list with `supported: boolean` and a "why not" description |
-| `useHotkey.ts` | 32 | The only hook with real logic — see §8 |
-| `awsTheme.ts` | 43 | Repaints Cloudscape's primary button AWS orange via the supported `applyTheme` token API, guarded by a module-level `applied` flag (`:36-42`) so React 18 StrictMode double-mounts are idempotent |
-| `auth.ts` | 17 | **Dead** — see §10 |
 
 ---
 
@@ -638,96 +571,10 @@ read `prefers-color-scheme` at all. Honest gap.
 
 ---
 
-## 10. Every package in `package.json`
-
-### Runtime dependencies (`frontend/package.json:11-21`)
-
-| Package | Version | What it's actually used for |
-|---|---|---|
-| `@cloudscape-design/components` | `^3.0.1334` | The UI. Table, AppLayoutToolbar, SplitPanel, Flashbar, Form/FormField, Select, Modal, Pagination, TextFilter, CollectionPreferences, AttributeEditor, TagEditor, FileUpload, Tabs, KeyValuePairs, CopyToClipboard… Imported per-component (`import Table from "@cloudscape-design/components/table"`) for tree-shaking |
-| `@cloudscape-design/global-styles` | `^1.0.63` | Two jobs: the base stylesheet (`layout.tsx:2`) and `applyMode`/`Mode` for Cloudscape's dark mode (`ThemeContext.tsx:4,37`) |
-| `@cloudscape-design/collection-hooks` | `^1.0.103` | **One call site only:** `useCollection` in `import/page.tsx:5,232-251`, for *client-side* filter/sort/paginate of the zone-file preview. It's the only table whose data isn't server-paginated, because the rows come from a textarea, not the API |
-| `next` | `^15.1.7` | Framework. Only `next/navigation` is imported anywhere — `useRouter`, `useParams`, `usePathname`, `useSearchParams`. Notably **`next/link` and `next/image` are never used** |
-| `react` | `^19.0.0` | — |
-| `react-dom` | `^19.0.0` | Never imported by name in `src`; required by React/Next to render to the DOM |
-| `axios` | `^1.6.8` | The only HTTP client. Instance + interceptor + `isAxiosError` in `lib/api.ts:1,8,37` |
-| `js-cookie` | `^3.0.5` | Read/write the `r53_token` cookie (`lib/api.ts:2`). Also imported by the dead `lib/auth.ts:1` |
-| `lucide-react` | `^0.475.0` | **Never imported.** Zero occurrences in `frontend/src` |
-
-### Dev dependencies (`frontend/package.json:22-33`)
-
-| Package | Used for |
-|---|---|
-| `typescript`, `@types/node`, `@types/react`, `@types/react-dom` | TS toolchain and types |
-| `@types/js-cookie` | Types for `js-cookie` v3, which ships none |
-| `tailwindcss` `^4.0.0` | Utility CSS. Entry point is `@import "tailwindcss"` at `globals.css:1` |
-| `@tailwindcss/postcss`, `postcss` | Tailwind v4's PostCSS plugin, wired in `frontend/postcss.config.mjs` |
-| `eslint`, `eslint-config-next` | Linting; also the source of the `react-hooks/exhaustive-deps` rule discussed in `06-frontend-crud.md` |
-
-### The unused things — say these before you're asked
-
-1. **`lucide-react` is a dead dependency.** Every icon in the app is hand-written inline
-   SVG (`TopNav.tsx:25-103`, `Drawers.tsx:15-29`, `AwsLogo.tsx`, `login/page.tsx:51-75`)
-   or a Cloudscape icon-name prop (`iconName="refresh"`,
-   `hosted-zones/page.tsx:302`; `iconName="status-info"`, `AppShell.tsx:143`). It was
-   presumably added at scaffold time and never removed. **Fix:** `npm uninstall
-   lucide-react` — it's a one-line, zero-risk change that removes a dependency from the
-   tree.
-
-2. **`frontend/src/lib/auth.ts` is dead code — and worse, it's *wrong* dead code.**
-   Nothing imports it (verified by grep across `frontend/src`). It defines a parallel,
-   conflicting cookie scheme:
-
-   | | `lib/auth.ts` (dead) | `lib/api.ts` (live) |
-   |---|---|---|
-   | Cookie name | `"token"` (`:4`) | `"r53_token"` (`api.ts:6`) |
-   | Expiry | 7 days (`:4`) | 1 day (`api.ts:24`) |
-   | `secure` | `true` (`:4`) | not set |
-   | `sameSite` | `"strict"` (`:4`) | `"lax"` (`api.ts:24`) |
-
-   This is the most dangerous kind of dead code: a future developer who imports
-   `setAuthToken` instead of `setToken` gets a login that appears to work and an
-   interceptor that never finds a token, because the interceptor reads `r53_token`
-   (`api.ts:16`). **Fix:** delete the file. If any of its settings are *better* — and
-   `secure: true` is — port that one attribute into `api.ts:24` and then delete.
-
-3. **`frontend/tailwind.config.ts` is vestigial.** Tailwind v4 configures itself from CSS
-   (`@theme inline` in `globals.css:81-102`); a v3-style `content`/`theme` config file is
-   not read by the v4 PostCSS pipeline. Harmless, but misleading.
-
-4. **`ROUTING_POLICY_OPTIONS` is declared twice.**
-   - `frontend/src/lib/routingPolicies.ts:39-48` — the good one: typed `RoutingPolicy`
-     union, a `supported: boolean` flag, and a `description` explaining *why* each policy
-     is unavailable (`:37`). Its 16-line file header (`:1-16`) documents that only Simple
-     routing works end to end because the other policies need per-policy fields (weight,
-     set identifier, region, CIDR collection) the backend has no storage for.
-   - `frontend/src/lib/dnsValidation.ts:106-115` — a flat `{value, label}[]` with none of
-     that context.
-
-   **The pages use the `dnsValidation` one** — `RecordForm.tsx:19-28` and
-   `records/create/page.tsx:25-36` both import `ROUTING_POLICY_OPTIONS` from
-   `@/lib/dnsValidation`. So the careful `supported`/`description` metadata is never
-   rendered: the dropdowns offer all eight policies as if they all worked, and selecting
-   Weighted stores the string "Weighted" while silently dropping the fields that make it
-   mean anything — exactly the outcome `routingPolicies.ts:13-16` says it wanted to avoid.
-
-   `routingPolicies.ts` is imported for one thing only: `ROUTING_POLICY_VALUES` in
-   `records/page.tsx:33`, to populate the filter dropdown.
-
-   **Fix:** delete the copy in `dnsValidation.ts`, import from `routingPolicies.ts`, and
-   pass `supported`/`description` through to Cloudscape `Select`'s `disabled` and
-   `description` option fields. That's ~10 lines and it turns a lie into an honest UI.
-
-5. **No tests of any kind.** No `__tests__`, no `*.test.tsx`, no Jest/Vitest/Testing
-   Library/Playwright in `package.json`. The highest-value first tests would be pure and
-   trivial to write: `dnsValidation.ts` (447 lines of branchy per-record-type rules) and
-   `parseZoneFile` in `import/page.tsx:55-153` (a real RFC 1035 parser). Both are pure
-   functions — no DOM, no mocks. `parseZoneFile` would need extracting to `lib/` first,
-   which is worth doing anyway.
-
----
-
 ## 11. If they ask…
+
+*Numbered 11 but placed here on purpose: §3, §6 and §10 are inventories and live below the
+fold, so the reading half ends with the rehearsal questions.*
 
 **"Why Context and not Redux?"**
 Five independent slices, roughly a dozen state fields, no cross-slice derivation, no need
@@ -825,3 +672,178 @@ dedup for free, and fixes the triple-fetch in `refreshAll` (`records/page.tsx:23
 (2) extract `parseZoneFile` (`import/page.tsx:55-153`) into `lib/` and unit-test it along
 with `dnsValidation.ts` — 500 lines of branchy pure logic with zero coverage today;
 (3) move the auth guard into middleware; (4) delete the dead code in §10.
+
+---
+
+
+# 🔎 Reference — do not read this linearly
+
+Everything below is lookup material: the route inventory, the component inventory and
+the package-by-package table. Ctrl-F it when you need a specific fact; skip it on a
+read-through.
+
+---
+
+## 3. Route inventory
+
+| URL | File | What it is |
+|---|---|---|
+| `/` | `frontend/src/app/page.tsx` | Entry redirect — `/hosted-zones` if signed in, else `/login` (`:12-15`) |
+| `/login` | `frontend/src/app/login/page.tsx` | Pixel-faithful AWS sign-in: user-type step → credentials step, root **and** IAM flows, demo-credentials button (`:178-185`) |
+| `/signup` | `frontend/src/app/signup/page.tsx` | AWS "Sign up for AWS" card → `register()` (`:81-97`) |
+| `/dashboard` | `frontend/src/app/dashboard/page.tsx` | `<ComingSoon>` placeholder (6 lines) |
+| `/hosted-zones` | `frontend/src/app/hosted-zones/page.tsx` | **Main list.** Server-side search/sort/paginate, single-select, split panel, delete modal |
+| `/hosted-zones/create` | `frontend/src/app/hosted-zones/create/page.tsx` | Create zone: domain-name validation, Public/Private tiles, mock VPC rows, tag editor |
+| `/hosted-zones/:id/records` | `frontend/src/app/hosted-zones/[id]/records/page.tsx` | **Biggest page (918 lines).** Records table, 4 filters, multi-select, bulk delete, export, edit-in-split-panel, 4 tabs |
+| `/hosted-zones/:id/records/create` | `frontend/src/app/hosted-zones/[id]/records/create/page.tsx` | "Quick create record" — N repeatable record blocks, alias toggle, per-block validation |
+| `/hosted-zones/:id/edit` | `frontend/src/app/hosted-zones/[id]/edit/page.tsx` | Edit zone description (everything else is immutable, `:148-157`) |
+| `/hosted-zones/:id/import` | `frontend/src/app/hosted-zones/[id]/import/page.tsx` | BIND zone-file import with a **client-side RFC 1035 parser** and live preview table |
+| `/hosted-zones/:id/test-record` | `frontend/src/app/hosted-zones/[id]/test-record/page.tsx` | Simulated DNS query — resolves NOERROR/NXDOMAIN/NODATA locally (`:148-174`) |
+| `/hosted-zones/:id/query-logging` | `frontend/src/app/hosted-zones/[id]/query-logging/page.tsx` | Faithful console form that honestly refuses (needs CloudWatch, `:28-29`) |
+| `/health-checks` | `frontend/src/app/health-checks/page.tsx` | `<ComingSoon>` |
+| `/profiles` | `frontend/src/app/profiles/page.tsx` | `<ComingSoon>` |
+| `/resolver?section=…` | `frontend/src/app/resolver/page.tsx` | 11 mocked Resolver sections behind one route |
+| `/traffic-policies?section=…` | `frontend/src/app/traffic-policies/page.tsx` | 2 mocked Traffic-flow sections |
+
+Real CRUD lives in exactly 6 of these 16 routes. The other 10 are chrome, auth, or honest
+placeholders — a deliberate choice: `ComingSoon`
+(`frontend/src/components/layout/ComingSoon.tsx:15-43`) keeps the full console shell and
+says the feature isn't built, rather than offering a dead button.
+
+---
+
+## 6. Component inventory
+
+### `components/layout/` — the console chrome
+
+| File | Lines | What it does |
+|---|---|---|
+| `AppShell.tsx` | 200 | The shell + auth guard. See §4 |
+| `TopNav.tsx` | 499 | The black AWS bar: logo, Amazon Q, services grid, cosmetic global search (`:224-235`), CloudShell, notifications bell, Help menu, Settings menu (contains the **theme switch**, `:314-330`), Regions menu, account menu with **Sign out** (`:486-491`). All icons are hand-written inline SVG (`:25-103`) |
+| `ConsoleSideNav.tsx` | 117 | Cloudscape `SideNavigation`. `resolveActiveHref` (`:92-98`) keeps "Hosted zones" highlighted on detail routes and disambiguates the `?section=` pages |
+| `ConsoleFooter.tsx` | 34 | 26px dark footer strip. The only file in `components/` with no `"use client"` — it has no hooks |
+| `Drawers.tsx` | 143 | `HelpContent` (Info drawer body, with a "Was this helpful?" toggle at `:33`) and `ToolsContent` (Operational troubleshooting, two tabs that honestly say CloudWatch isn't implemented) |
+| `ComingSoon.tsx` | 43 | The placeholder screen, wrapped in a full `AppShell` so only the main panel is empty |
+
+### `components/ui/` — small shared primitives
+
+| File | Lines | What it does |
+|---|---|---|
+| `Modal.tsx` | 46 | Adapter over Cloudscape `Modal` that renames the props to `open`/`onClose`/`title` **and returns `null` when closed** — see §7 |
+| `Flashbar.tsx` | 28 | Renders `NotificationContext.flashes` into Cloudscape's `Flashbar`; returns `null` when empty (`:13`) |
+| `Button.tsx` | 41 | Hand-rolled Tailwind pill button (primary/normal/link) used **only inside modal footers**, e.g. `hosted-zones/page.tsx:427-432`. Everywhere else uses Cloudscape's `Button` |
+| `TagEditor.tsx` | 76 | Controlled wrapper over Cloudscape `TagEditor` with the full Route 53 i18n string set and a 50-tag cap (`:12`). `onChange` hands back `(tags, valid)` so the parent form can block submit |
+| `KeyboardShortcutsModal.tsx` | 37 | Five-row reference table, always mounted by `ShortcutsProvider` |
+
+### `components/records/`
+
+| File | Lines | What it does |
+|---|---|---|
+| `RecordForm.tsx` | 232 | The **edit-a-record** modal. Uses Cloudscape's `Modal` directly, not `ui/Modal`. Disables Record name and Record type when editing (`:162`, `:172`) because Route 53 keys a record on name+type |
+
+### `components/brand/`
+
+| File | Lines | What it does |
+|---|---|---|
+| `AwsLogo.tsx` | 51 | Inline SVG recreation of the "aws" wordmark + orange smile, used on `/login` and `/signup`. No external image dependency |
+
+### `lib/` — non-component logic
+
+| File | Lines | What it does |
+|---|---|---|
+| `api.ts` | 44 | axios instance, request interceptor, token cookie helpers, `apiError()` |
+| `services.ts` | 137 | `authService`, `zoneService`, `recordService` — the whole API surface |
+| `dnsValidation.ts` | 447 | Per-record-type rdata validation transcribed from the Route 53 developer guide (`:1-6` cites the exact AWS doc pages). Includes a hand-written IPv6 parser (`:129-161`) and a quote-aware tokenizer (`:190-227`) |
+| `routingPolicies.ts` | 51 | Typed routing-policy list with `supported: boolean` and a "why not" description |
+| `useHotkey.ts` | 32 | The only hook with real logic — see §8 |
+| `awsTheme.ts` | 43 | Repaints Cloudscape's primary button AWS orange via the supported `applyTheme` token API, guarded by a module-level `applied` flag (`:36-42`) so React 18 StrictMode double-mounts are idempotent |
+| `auth.ts` | 17 | **Dead** — see §10 |
+
+---
+
+## 10. Every package in `package.json`
+
+### Runtime dependencies (`frontend/package.json:11-21`)
+
+| Package | Version | What it's actually used for |
+|---|---|---|
+| `@cloudscape-design/components` | `^3.0.1334` | The UI. Table, AppLayoutToolbar, SplitPanel, Flashbar, Form/FormField, Select, Modal, Pagination, TextFilter, CollectionPreferences, AttributeEditor, TagEditor, FileUpload, Tabs, KeyValuePairs, CopyToClipboard… Imported per-component (`import Table from "@cloudscape-design/components/table"`) for tree-shaking |
+| `@cloudscape-design/global-styles` | `^1.0.63` | Two jobs: the base stylesheet (`layout.tsx:2`) and `applyMode`/`Mode` for Cloudscape's dark mode (`ThemeContext.tsx:4,37`) |
+| `@cloudscape-design/collection-hooks` | `^1.0.103` | **One call site only:** `useCollection` in `import/page.tsx:5,232-251`, for *client-side* filter/sort/paginate of the zone-file preview. It's the only table whose data isn't server-paginated, because the rows come from a textarea, not the API |
+| `next` | `^15.1.7` | Framework. Only `next/navigation` is imported anywhere — `useRouter`, `useParams`, `usePathname`, `useSearchParams`. Notably **`next/link` and `next/image` are never used** |
+| `react` | `^19.0.0` | — |
+| `react-dom` | `^19.0.0` | Never imported by name in `src`; required by React/Next to render to the DOM |
+| `axios` | `^1.6.8` | The only HTTP client. Instance + interceptor + `isAxiosError` in `lib/api.ts:1,8,37` |
+| `js-cookie` | `^3.0.5` | Read/write the `r53_token` cookie (`lib/api.ts:2`). Also imported by the dead `lib/auth.ts:1` |
+| `lucide-react` | `^0.475.0` | **Never imported.** Zero occurrences in `frontend/src` |
+
+### Dev dependencies (`frontend/package.json:22-33`)
+
+| Package | Used for |
+|---|---|
+| `typescript`, `@types/node`, `@types/react`, `@types/react-dom` | TS toolchain and types |
+| `@types/js-cookie` | Types for `js-cookie` v3, which ships none |
+| `tailwindcss` `^4.0.0` | Utility CSS. Entry point is `@import "tailwindcss"` at `globals.css:1` |
+| `@tailwindcss/postcss`, `postcss` | Tailwind v4's PostCSS plugin, wired in `frontend/postcss.config.mjs` |
+| `eslint`, `eslint-config-next` | Linting; also the source of the `react-hooks/exhaustive-deps` rule discussed in `06-frontend-crud.md` |
+
+### The unused things — say these before you're asked
+
+1. **`lucide-react` is a dead dependency.** Every icon in the app is hand-written inline
+   SVG (`TopNav.tsx:25-103`, `Drawers.tsx:15-29`, `AwsLogo.tsx`, `login/page.tsx:51-75`)
+   or a Cloudscape icon-name prop (`iconName="refresh"`,
+   `hosted-zones/page.tsx:302`; `iconName="status-info"`, `AppShell.tsx:143`). It was
+   presumably added at scaffold time and never removed. **Fix:** `npm uninstall
+   lucide-react` — it's a one-line, zero-risk change that removes a dependency from the
+   tree.
+
+2. **`frontend/src/lib/auth.ts` is dead code — and worse, it's *wrong* dead code.**
+   Nothing imports it (verified by grep across `frontend/src`). It defines a parallel,
+   conflicting cookie scheme:
+
+   | | `lib/auth.ts` (dead) | `lib/api.ts` (live) |
+   |---|---|---|
+   | Cookie name | `"token"` (`:4`) | `"r53_token"` (`api.ts:6`) |
+   | Expiry | 7 days (`:4`) | 1 day (`api.ts:24`) |
+   | `secure` | `true` (`:4`) | not set |
+   | `sameSite` | `"strict"` (`:4`) | `"lax"` (`api.ts:24`) |
+
+   This is the most dangerous kind of dead code: a future developer who imports
+   `setAuthToken` instead of `setToken` gets a login that appears to work and an
+   interceptor that never finds a token, because the interceptor reads `r53_token`
+   (`api.ts:16`). **Fix:** delete the file. If any of its settings are *better* — and
+   `secure: true` is — port that one attribute into `api.ts:24` and then delete.
+
+3. **`frontend/tailwind.config.ts` is vestigial.** Tailwind v4 configures itself from CSS
+   (`@theme inline` in `globals.css:81-102`); a v3-style `content`/`theme` config file is
+   not read by the v4 PostCSS pipeline. Harmless, but misleading.
+
+4. **`ROUTING_POLICY_OPTIONS` is declared twice.**
+   - `frontend/src/lib/routingPolicies.ts:39-48` — the good one: typed `RoutingPolicy`
+     union, a `supported: boolean` flag, and a `description` explaining *why* each policy
+     is unavailable (`:37`). Its 16-line file header (`:1-16`) documents that only Simple
+     routing works end to end because the other policies need per-policy fields (weight,
+     set identifier, region, CIDR collection) the backend has no storage for.
+   - `frontend/src/lib/dnsValidation.ts:106-115` — a flat `{value, label}[]` with none of
+     that context.
+
+   **The pages use the `dnsValidation` one** — `RecordForm.tsx:19-28` and
+   `records/create/page.tsx:25-36` both import `ROUTING_POLICY_OPTIONS` from
+   `@/lib/dnsValidation`. So the careful `supported`/`description` metadata is never
+   rendered: the dropdowns offer all eight policies as if they all worked, and selecting
+   Weighted stores the string "Weighted" while silently dropping the fields that make it
+   mean anything — exactly the outcome `routingPolicies.ts:13-16` says it wanted to avoid.
+
+   `routingPolicies.ts` is imported for one thing only: `ROUTING_POLICY_VALUES` in
+   `records/page.tsx:33`, to populate the filter dropdown.
+
+   **Fix:** delete the copy in `dnsValidation.ts`, import from `routingPolicies.ts`, and
+   pass `supported`/`description` through to Cloudscape `Select`'s `disabled` and
+   `description` option fields. That's ~10 lines and it turns a lie into an honest UI.
+
+5. **No tests of any kind.** No `__tests__`, no `*.test.tsx`, no Jest/Vitest/Testing
+   Library/Playwright in `package.json`. The highest-value first tests would be pure and
+   trivial to write: `dnsValidation.ts` (447 lines of branchy per-record-type rules) and
+   `parseZoneFile` in `import/page.tsx:55-153` (a real RFC 1035 parser). Both are pure
+   functions — no DOM, no mocks. `parseZoneFile` would need extracting to `lib/` first,
+   which is worth doing anyway.

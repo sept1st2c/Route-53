@@ -1,5 +1,15 @@
 # 01 — Project Overview
 
+> ### TL;DR — the 5 things you must be able to say
+>
+> 1. **A hosted zone is a folder for one domain; a DNS record is an entry inside it.** Everything in this project is CRUD on those two nouns.
+> 2. **Three layers:** Next.js in the browser → FastAPI over JSON with a JWT cookie → SQLite through SQLAlchemy.
+> 3. **19 endpoints, 3 tables, 5 contexts, 226 tests.** Have the numbers ready.
+> 4. **It does not resolve real DNS.** It's the control plane — say this in the first minute, framed as a scoping decision.
+> 5. **`ttl IS NULL` marks an alias record** — the design choice that caused the project's nastiest bug.
+>
+> **Read all of it (~15 min)**, except the repo tree under 🔎 Reference, which is for looking up.
+
 > **Read this first.** Everything else in this folder zooms in on one layer. This file is the map.
 
 ---
@@ -198,6 +208,59 @@ knowing *when that stops being true* is the interesting half of the answer.
 
 ---
 
+## 7. Where to go next
+
+*§6 is the repository tree — an inventory, so it lives below the fold.*
+
+| You want to understand… | Read |
+| --- | --- |
+| The tables, columns, and what's enforced where | [02-database.md](02-database.md) |
+| FastAPI itself, taught against Express | [03-backend-overview.md](03-backend-overview.md) |
+| Every endpoint with a working example | [04-backend-apis.md](04-backend-apis.md) |
+| The Next.js structure, contexts and theming | [05-frontend-overview.md](05-frontend-overview.md) |
+| Hooks and the four CRUD flows | [06-frontend-crud.md](06-frontend-crud.md) |
+| The bugs — the best material you have | [07-bugs-and-debugging.md](07-bugs-and-debugging.md) |
+| Login, JWT, cookies, tenancy | [09-auth-and-security.md](09-auth-and-security.md) |
+| Hosting, env vars, and the test suite | [10-deployment-and-testing.md](10-deployment-and-testing.md) |
+| Rehearsal questions | [08-interview-qa.md](08-interview-qa.md) |
+
+---
+
+## If they ask…
+
+**"Why SQLite and not Postgres?"**
+The assignment specified it, and for a single-writer demo app it's genuinely the right
+call — zero setup, one file, full SQL. It becomes wrong the moment you need concurrent
+writers or a hosted deployment with durable storage, which is exactly the limitation we
+hit on Render's free tier. Because everything goes through SQLAlchemy, switching to
+Postgres is a `DATABASE_URL` change plus a real migration tool.
+
+**"Why FastAPI and not Django or Flask?"**
+Automatic request validation from type hints and free interactive API docs. Django
+brings an admin and an auth system we didn't need; Flask would have meant hand-writing
+what Pydantic gives for nothing.
+
+**"Is this a real DNS server?"**
+No, and deliberately not. It's the control plane — the part you'd use to *manage*
+records. Serving actual lookups on UDP port 53 is a different problem entirely and
+wasn't in scope.
+
+**"What would you do differently?"**
+Turn on `PRAGMA foreign_keys`, add a real migration tool instead of the hand-rolled
+`ALTER TABLE` in `main.py`, add a unique constraint at the database level instead of
+checking in Python, and add frontend tests — right now all 226 tests are backend-only.
+Details in [02-database.md](02-database.md) and [10-deployment-and-testing.md](10-deployment-and-testing.md).
+
+
+---
+
+# 🔎 Reference — do not read this linearly
+
+The full repository tree, one line per file. Ctrl-F it when you need to find where
+something lives; skip it on a read-through.
+
+---
+
 ## 6. Repository tree
 
 Only tracked files. Screenshots under `frontend/uiss/` are AWS console references
@@ -290,46 +353,3 @@ route53-clone/
 
 **Counts to have ready:** 111 tracked files · 20 backend · 88 frontend (55 of those
 are reference screenshots) · 19 API endpoints · 3 tables · 226 tests · 5 contexts.
-
----
-
-## 7. Where to go next
-
-| You want to understand… | Read |
-| --- | --- |
-| The tables, columns, and what's enforced where | [02-database.md](02-database.md) |
-| FastAPI itself, taught against Express | [03-backend-overview.md](03-backend-overview.md) |
-| Every endpoint with a working example | [04-backend-apis.md](04-backend-apis.md) |
-| The Next.js structure, contexts and theming | [05-frontend-overview.md](05-frontend-overview.md) |
-| Hooks and the four CRUD flows | [06-frontend-crud.md](06-frontend-crud.md) |
-| The bugs — the best material you have | [07-bugs-and-debugging.md](07-bugs-and-debugging.md) |
-| Login, JWT, cookies, tenancy | [09-auth-and-security.md](09-auth-and-security.md) |
-| Hosting, env vars, and the test suite | [10-deployment-and-testing.md](10-deployment-and-testing.md) |
-| Rehearsal questions | [08-interview-qa.md](08-interview-qa.md) |
-
----
-
-## If they ask…
-
-**"Why SQLite and not Postgres?"**
-The assignment specified it, and for a single-writer demo app it's genuinely the right
-call — zero setup, one file, full SQL. It becomes wrong the moment you need concurrent
-writers or a hosted deployment with durable storage, which is exactly the limitation we
-hit on Render's free tier. Because everything goes through SQLAlchemy, switching to
-Postgres is a `DATABASE_URL` change plus a real migration tool.
-
-**"Why FastAPI and not Django or Flask?"**
-Automatic request validation from type hints and free interactive API docs. Django
-brings an admin and an auth system we didn't need; Flask would have meant hand-writing
-what Pydantic gives for nothing.
-
-**"Is this a real DNS server?"**
-No, and deliberately not. It's the control plane — the part you'd use to *manage*
-records. Serving actual lookups on UDP port 53 is a different problem entirely and
-wasn't in scope.
-
-**"What would you do differently?"**
-Turn on `PRAGMA foreign_keys`, add a real migration tool instead of the hand-rolled
-`ALTER TABLE` in `main.py`, add a unique constraint at the database level instead of
-checking in Python, and add frontend tests — right now all 226 tests are backend-only.
-Details in [02-database.md](02-database.md) and [10-deployment-and-testing.md](10-deployment-and-testing.md).

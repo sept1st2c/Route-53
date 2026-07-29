@@ -1,5 +1,15 @@
 # 03 — Backend Overview: FastAPI for a Node Developer
 
+> ### TL;DR — the 5 things you must be able to say
+>
+> 1. **FastAPI is Express with validation and docs built in**, not bolted on — you annotate a parameter and the framework validates it before your handler runs.
+> 2. **`Depends()` replaces middleware.** It's per-parameter, typed, and overridable in tests — which is how all 226 tests run against a throwaway database.
+> 3. **Pydantic is Zod wired into the framework.** TypeScript types vanish at runtime; Pydantic models are real objects that validate and coerce.
+> 4. **Validation is split across two layers on purpose** — payload-decidable rules in `schemas.py`, anything needing another row in the route layer. A schema can't run a query.
+> 5. **The handlers are sync `def`, not `async def`** — SQLAlchemy's sync API would block the event loop, so FastAPI runs them in a thread pool. Don't claim it's async end to end.
+>
+> **Read** §0–§5 and §12 (~20 min). **Look up** everything under 🔎 Reference.
+
 > **Who this is for:** you know Express and Node cold. You had never written Python
 > before this project. This doc teaches the FastAPI backend by constantly mapping it
 > back to things you already know.
@@ -479,6 +489,148 @@ taste. If a rule is decidable from the payload it's a Pydantic validator and ret
 awkward case is PUT, because the update schema has no `type` field — so the route reads
 the stored type and re-runs the same shared validator function. Both paths call the
 same code in `schemas.py`, so create and update can't drift apart."*
+
+---
+
+## 12. "If they ask…" — 10 questions with answers
+
+*Numbered 12 but placed here on purpose: §6–§11 are reference material and live below the
+fold, so the reading half ends with the rehearsal questions.*
+
+### Q1. Why FastAPI over Flask, Django, or just Express?
+
+- **vs Flask:** Flask is WSGI (synchronous) and ships no validation or docs. You'd add
+  Marshmallow or Pydantic, plus flask-smorest for OpenAPI, and wire them together.
+  FastAPI has all of it in the box and is ASGI-native.
+- **vs Django:** Django is batteries-included — ORM, admin, auth, templates, migrations.
+  Excellent for a large multi-app product, but heavy for a ~19-endpoint JSON API, and
+  DRF serializers are more ceremony than Pydantic models.
+- **vs Express:** honestly a fine choice, and my strongest stack. FastAPI's edge is that
+  validation, typing and OpenAPI come from *one* declaration. In Express I'd write the
+  Zod schema, the TypeScript type, and the swagger-jsdoc comment separately — three
+  places to keep in sync, and the docs silently rot first.
+- **The honest answer:** the brief called for Python. Given Python, FastAPI was the
+  right pick — and the auto-generated `/api/docs` was genuinely useful while building
+  the frontend against it.
+
+### Q2. How does dependency injection work here?
+
+Declare a parameter with `= Depends(callable)`. FastAPI calls it, and binds the return
+value to that parameter. Dependencies can depend on other dependencies —
+`get_current_user` takes `db: Session = Depends(get_db)` (`auth.py:52`) — and FastAPI
+resolves the graph and **caches per request**, so a route asking for both `get_db` and
+`get_current_user` gets the *same* session in both. `get_db` uses `yield`, so its
+`finally: db.close()` runs after the response is sent — a connection can never leak.
+
+Versus Express middleware: middleware mutates `req` by side effect and is invisible in
+the handler signature; `Depends` returns a value, is per-handler, and shows up in
+Swagger.
+
+### Q3. Sync `def` or `async def` — and why?
+
+All sync `def`. SQLAlchemy's ORM here is blocking; putting a blocking call inside an
+`async def` blocks the event loop and stalls every concurrent request. FastAPI
+automatically runs sync handlers on a threadpool (default 40 workers) so the loop stays
+free. The trade-off is that concurrency is capped at the pool size; the upgrade is
+async SQLAlchemy + `async def`, which I'd do only after seeing pool saturation.
+
+### Q4. How does validation work?
+
+Two deliberate layers. **Schema layer** (`schemas.py`): anything decidable from the
+payload alone — per-record-type rdata format, TTL range 0–2147483647, name
+normalisation to a lowercase FQDN, routing-policy whitelist — enforced by Pydantic,
+failing with **422**. **Route layer** (`routes/*.py`): anything needing a DB lookup —
+CNAME-at-apex, CNAME exclusivity, `(zone, name, type)` uniqueness, protected apex
+NS/SOA, per-owner zone-name uniqueness — failing with **409**. The split is forced by
+information: a Pydantic model literally cannot see other rows.
+
+### Q5. What is uvicorn?
+
+The ASGI server — the process that binds the port and speaks HTTP. FastAPI is just a
+library; uvicorn is what runs it. `uvicorn app.main:app` means "import `app.main`, serve
+the object called `app`." It is the exact counterpart of `node server.js`, and it's
+literally the production start command in `Procfile:1`.
+
+### Q6. What's the difference between Pydantic and SQLAlchemy models?
+
+Different jobs, and keeping them separate is the point.
+**SQLAlchemy models** (`models.py`) describe *database tables* — columns, types,
+foreign keys, relationships.
+**Pydantic models** (`schemas.py`) describe *API payloads* — what a client may send and
+what it will receive.
+The separation is a security boundary: `User` has `hashed_password`
+(`models.py:38`), but `UserOut` (`schemas.py:40-46`) declares only
+`id / email / full_name / created_at`. Because `/api/auth/me` is declared
+`response_model=UserOut` (`auth.py:138`), the hash is structurally impossible to leak —
+it's not "we remembered to delete it", it's "the response model has no field for it".
+
+### Q7. How do you handle database sessions and transactions?
+
+`SessionLocal` is a session factory (`database.py:15`) configured with
+`autocommit=False, autoflush=False` — nothing is written until an explicit
+`db.commit()`. `get_db` yields one session per request and closes it in a `finally`.
+Within a handler the pattern is mutate-then-commit:
+
+```python
+    db.add(zone)
+    db.commit()
+    db.refresh(zone)
+```
+> `backend/app/routes/zones.py:133-135`
+
+`db.refresh()` re-reads the row so server-generated values (the autoincrement `id`, the
+`server_default=func.now()` timestamp) are populated on the Python object before it's
+serialised.
+
+### Q8. What's `check_same_thread: False` about?
+
+```python
+engine = create_engine(
+    DATABASE_URL,
+    connect_args={"check_same_thread": False}  # SQLite only
+)
+```
+> `backend/app/database.py:10-13`
+
+SQLite's Python driver defaults to refusing to use a connection from a thread other
+than the one that created it. Because sync handlers run on **threadpool** workers
+(§2), a connection legitimately crosses threads, so the check must be disabled. It is
+SQLite-specific — the flag would be dropped when moving to Postgres. Naming it also
+shows you understand *why* the threadpool matters in practice.
+
+### Q9. How would you scale this / what breaks first?
+
+In order:
+1. **SQLite + Render's ephemeral disk.** The database is a file that's wiped on every
+   deploy (`demo_seed.py:3-6`). First move is Postgres — and it's a one-line change,
+   because `DATABASE_URL` is already env-driven (`database.py:8`) and SQLAlchemy
+   abstracts the dialect. Only `check_same_thread` would need removing.
+2. **The threadpool ceiling** under concurrency → async SQLAlchemy.
+3. **Offset pagination.** `.offset((page - 1) * limit)` (`zones.py:98`) makes the
+   database walk and discard N rows; deep pages get linearly slower. Cursor/keyset
+   pagination fixes it.
+4. **No caching or rate limiting** anywhere.
+
+### Q10. What would you change if you rebuilt it?
+
+- `@app.on_event("startup")` → the `lifespan` context manager (the former is deprecated).
+- `create_all()` + hand-rolled `PRAGMA table_info` migration → **Alembic**.
+- Drop `passlib` and call `bcrypt` directly, which removes the `bcrypt==4.0.1` pin.
+- Split `schemas.py` (672 lines) — the DNS validation library deserves to be
+  `services/dns_validation.py`, leaving `schemas.py` as just the API models. It's
+  already imported *as* a library by both `records.py` and `demo_seed.py`, so the
+  seam is already there.
+- Add a readiness probe that actually touches the database.
+- Rate-limit `/api/auth/login` (see `09-auth-and-security.md`).
+
+
+---
+
+# 🔎 Reference — do not read this linearly
+
+Everything below is lookup material: the file-by-file inventory, the startup and CORS
+detail, and the dependency list. Ctrl-F it when you need a specific fact; skip it on a
+read-through.
 
 ---
 
@@ -990,133 +1142,3 @@ hit. On Render's free tier it also doubles as a wake-from-idle ping.
 > check (dependencies are reachable). A production version would attempt
 > `SELECT 1` against the DB and return 503 if that fails, so a load balancer stops
 > routing to an instance whose database connection has died.
-
----
-
-## 12. "If they ask…" — 10 questions with answers
-
-### Q1. Why FastAPI over Flask, Django, or just Express?
-
-- **vs Flask:** Flask is WSGI (synchronous) and ships no validation or docs. You'd add
-  Marshmallow or Pydantic, plus flask-smorest for OpenAPI, and wire them together.
-  FastAPI has all of it in the box and is ASGI-native.
-- **vs Django:** Django is batteries-included — ORM, admin, auth, templates, migrations.
-  Excellent for a large multi-app product, but heavy for a ~19-endpoint JSON API, and
-  DRF serializers are more ceremony than Pydantic models.
-- **vs Express:** honestly a fine choice, and my strongest stack. FastAPI's edge is that
-  validation, typing and OpenAPI come from *one* declaration. In Express I'd write the
-  Zod schema, the TypeScript type, and the swagger-jsdoc comment separately — three
-  places to keep in sync, and the docs silently rot first.
-- **The honest answer:** the brief called for Python. Given Python, FastAPI was the
-  right pick — and the auto-generated `/api/docs` was genuinely useful while building
-  the frontend against it.
-
-### Q2. How does dependency injection work here?
-
-Declare a parameter with `= Depends(callable)`. FastAPI calls it, and binds the return
-value to that parameter. Dependencies can depend on other dependencies —
-`get_current_user` takes `db: Session = Depends(get_db)` (`auth.py:52`) — and FastAPI
-resolves the graph and **caches per request**, so a route asking for both `get_db` and
-`get_current_user` gets the *same* session in both. `get_db` uses `yield`, so its
-`finally: db.close()` runs after the response is sent — a connection can never leak.
-
-Versus Express middleware: middleware mutates `req` by side effect and is invisible in
-the handler signature; `Depends` returns a value, is per-handler, and shows up in
-Swagger.
-
-### Q3. Sync `def` or `async def` — and why?
-
-All sync `def`. SQLAlchemy's ORM here is blocking; putting a blocking call inside an
-`async def` blocks the event loop and stalls every concurrent request. FastAPI
-automatically runs sync handlers on a threadpool (default 40 workers) so the loop stays
-free. The trade-off is that concurrency is capped at the pool size; the upgrade is
-async SQLAlchemy + `async def`, which I'd do only after seeing pool saturation.
-
-### Q4. How does validation work?
-
-Two deliberate layers. **Schema layer** (`schemas.py`): anything decidable from the
-payload alone — per-record-type rdata format, TTL range 0–2147483647, name
-normalisation to a lowercase FQDN, routing-policy whitelist — enforced by Pydantic,
-failing with **422**. **Route layer** (`routes/*.py`): anything needing a DB lookup —
-CNAME-at-apex, CNAME exclusivity, `(zone, name, type)` uniqueness, protected apex
-NS/SOA, per-owner zone-name uniqueness — failing with **409**. The split is forced by
-information: a Pydantic model literally cannot see other rows.
-
-### Q5. What is uvicorn?
-
-The ASGI server — the process that binds the port and speaks HTTP. FastAPI is just a
-library; uvicorn is what runs it. `uvicorn app.main:app` means "import `app.main`, serve
-the object called `app`." It is the exact counterpart of `node server.js`, and it's
-literally the production start command in `Procfile:1`.
-
-### Q6. What's the difference between Pydantic and SQLAlchemy models?
-
-Different jobs, and keeping them separate is the point.
-**SQLAlchemy models** (`models.py`) describe *database tables* — columns, types,
-foreign keys, relationships.
-**Pydantic models** (`schemas.py`) describe *API payloads* — what a client may send and
-what it will receive.
-The separation is a security boundary: `User` has `hashed_password`
-(`models.py:38`), but `UserOut` (`schemas.py:40-46`) declares only
-`id / email / full_name / created_at`. Because `/api/auth/me` is declared
-`response_model=UserOut` (`auth.py:138`), the hash is structurally impossible to leak —
-it's not "we remembered to delete it", it's "the response model has no field for it".
-
-### Q7. How do you handle database sessions and transactions?
-
-`SessionLocal` is a session factory (`database.py:15`) configured with
-`autocommit=False, autoflush=False` — nothing is written until an explicit
-`db.commit()`. `get_db` yields one session per request and closes it in a `finally`.
-Within a handler the pattern is mutate-then-commit:
-
-```python
-    db.add(zone)
-    db.commit()
-    db.refresh(zone)
-```
-> `backend/app/routes/zones.py:133-135`
-
-`db.refresh()` re-reads the row so server-generated values (the autoincrement `id`, the
-`server_default=func.now()` timestamp) are populated on the Python object before it's
-serialised.
-
-### Q8. What's `check_same_thread: False` about?
-
-```python
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}  # SQLite only
-)
-```
-> `backend/app/database.py:10-13`
-
-SQLite's Python driver defaults to refusing to use a connection from a thread other
-than the one that created it. Because sync handlers run on **threadpool** workers
-(§2), a connection legitimately crosses threads, so the check must be disabled. It is
-SQLite-specific — the flag would be dropped when moving to Postgres. Naming it also
-shows you understand *why* the threadpool matters in practice.
-
-### Q9. How would you scale this / what breaks first?
-
-In order:
-1. **SQLite + Render's ephemeral disk.** The database is a file that's wiped on every
-   deploy (`demo_seed.py:3-6`). First move is Postgres — and it's a one-line change,
-   because `DATABASE_URL` is already env-driven (`database.py:8`) and SQLAlchemy
-   abstracts the dialect. Only `check_same_thread` would need removing.
-2. **The threadpool ceiling** under concurrency → async SQLAlchemy.
-3. **Offset pagination.** `.offset((page - 1) * limit)` (`zones.py:98`) makes the
-   database walk and discard N rows; deep pages get linearly slower. Cursor/keyset
-   pagination fixes it.
-4. **No caching or rate limiting** anywhere.
-
-### Q10. What would you change if you rebuilt it?
-
-- `@app.on_event("startup")` → the `lifespan` context manager (the former is deprecated).
-- `create_all()` + hand-rolled `PRAGMA table_info` migration → **Alembic**.
-- Drop `passlib` and call `bcrypt` directly, which removes the `bcrypt==4.0.1` pin.
-- Split `schemas.py` (672 lines) — the DNS validation library deserves to be
-  `services/dns_validation.py`, leaving `schemas.py` as just the API models. It's
-  already imported *as* a library by both `records.py` and `demo_seed.py`, so the
-  seam is already there.
-- Add a readiness probe that actually touches the database.
-- Rate-limit `/api/auth/login` (see `09-auth-and-security.md`).

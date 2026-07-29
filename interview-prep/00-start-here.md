@@ -85,18 +85,43 @@ Interviewers use specifics to test whether you actually built the thing.
 
 ## 4 — The reading list
 
-| # | File | What it gives you |
-| --- | --- | --- |
-| 01 | [01-overview.md](01-overview.md) | What DNS is, what the app does, the request-flow diagram, the full repo tree |
-| 02 | [02-database.md](02-database.md) | Every table and column; what the *database* enforces vs what only Python does |
-| 03 | [03-backend-overview.md](03-backend-overview.md) | FastAPI itself, taught against Express |
-| 04 | [04-backend-apis.md](04-backend-apis.md) | All 19 endpoints with working request/response examples |
-| 05 | [05-frontend-overview.md](05-frontend-overview.md) | App Router layout, the shell, the five contexts, theming |
-| 06 | [06-frontend-crud.md](06-frontend-crud.md) | Every hook and why; the four CRUD flows traced end to end |
-| 07 | [07-bugs-and-debugging.md](07-bugs-and-debugging.md) | Seven real bugs — **your strongest material** |
-| 08 | [08-interview-qa.md](08-interview-qa.md) | ~50 questions with spoken-word answers |
-| 09 | [09-auth-and-security.md](09-auth-and-security.md) | Login end to end, JWT, bcrypt, cookies, tenancy |
-| 10 | [10-deployment-and-testing.md](10-deployment-and-testing.md) | Vercel + Render, cross-domain cookies, the test suite |
+**How these files are built — read this once and the folder stops being intimidating.**
+
+Every file opens with a **TL;DR box: the 5 things you must be able to say.** Read only
+those eleven boxes and you can already hold a conversation about this project. That's
+about 12 minutes total.
+
+Every file is then split by a **🔎 Reference fold**:
+
+```
+   ┌─ TL;DR box .............. 5 bullets. Read always.
+   │
+   │  the teaching half ...... concepts, in reading order. Read this.
+   │
+   ├─ 🔎 Reference fold
+   │
+   └─ the lookup half ........ tables, captures, inventories. NEVER read linearly.
+                               Ctrl-F it when you need one specific fact.
+```
+
+Roughly **40% of the folder sits below a fold.** It's there so an answer exists when you
+need it — not so you can read it. If you find yourself reading below a fold, stop.
+
+| # | File | Read | Look up | What it gives you |
+| --- | --- | --- | --- | --- |
+| 01 | [01-overview.md](01-overview.md) | 15 min | repo tree | What DNS is, what the app does, the request-flow diagram |
+| 02 | [02-database.md](02-database.md) | 25 min | columns, DDL, rows | What the *database* enforces vs what only Python does — **densest file in the set** |
+| 03 | [03-backend-overview.md](03-backend-overview.md) | 20 min | file list, CORS, deps | FastAPI itself, taught against Express |
+| 04 | [04-backend-apis.md](04-backend-apis.md) | 8 min | all 19 endpoints | Conventions first; per-endpoint detail is pure reference |
+| 05 | [05-frontend-overview.md](05-frontend-overview.md) | 18 min | routes, components, packages | App Router, the shell, the five contexts, theming |
+| 06 | [06-frontend-crud.md](06-frontend-crud.md) | 22 min | hook inventory, form patterns | The four CRUD flows; why each hook was chosen |
+| 07 | [07-bugs-and-debugging.md](07-bugs-and-debugging.md) | 20 min | — all narrative | Seven real bugs — **your strongest material** |
+| 08 | [08-interview-qa.md](08-interview-qa.md) | 35 min aloud | — all drills | 51 questions with spoken-word answers |
+| 09 | [09-auth-and-security.md](09-auth-and-security.md) | 20 min | hardening checklist | Login end to end, JWT, bcrypt, cookies, tenancy |
+| 10 | [10-deployment-and-testing.md](10-deployment-and-testing.md) | 14 min | — short enough | Vercel + Render, cross-domain cookies, the test suite |
+
+**Total above the fold: about 3 hours**, spread over the five evenings below. The other
+2,300 lines are lookup material you should never read front to back.
 
 ### If you only read three
 
@@ -111,18 +136,22 @@ Interviewers use specifics to test whether you actually built the thing.
 
 ## 5 — A study plan
 
-**Evening 1 — the shape (≈90 min).**
-Read 01, then 02. Then, without looking, draw the three-layer diagram and the three tables
-with their relationships. If you can't, reread 02.
+**Evening 0 — the 12-minute skim.**
+Open all eleven files and read **only the TL;DR box** at the top of each. Nothing else.
+You'll be surprised how much of a conversation you can already hold.
 
-**Evening 2 — the backend (≈90 min).**
-Read 03, then skim 04 with the API docs open at
-`https://route53-clone-api-zgy9.onrender.com/api/docs` — click through a few endpoints and
-watch the real responses. Then read 09.
+**Evening 1 — the shape (≈45 min).**
+Read 01 and 02 **above the fold only**. Then, without looking, draw the three-layer diagram
+and the three tables with their relationships. If you can't, reread 02.
 
-**Evening 3 — the frontend (≈60 min).**
-Read 05 and 06. Open `frontend/src/app/hosted-zones/page.tsx` alongside 06 and follow the
-list-load flow in the actual file.
+**Evening 2 — the backend (≈45 min).**
+Read 03 above the fold, then 09 above the fold. Skip 04's reference half entirely — instead
+open `https://route53-clone-api-zgy9.onrender.com/api/docs` and click through a few
+endpoints. Watching real responses beats reading captured ones.
+
+**Evening 3 — the frontend (≈35 min).**
+Read 05 and 06, above the fold. Open `frontend/src/app/hosted-zones/page.tsx` alongside 06
+and follow the list-load flow in the actual file.
 
 **Evening 4 — the stories (≈60 min).**
 Read 07. Pick **two** bugs and tell each one out loud, unaided, in 90 seconds. The alias/TTL

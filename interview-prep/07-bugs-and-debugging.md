@@ -1,5 +1,15 @@
 # 07 — Bugs & War Stories
 
+> ### TL;DR — the 5 things you must be able to say
+>
+> 1. **The BIND parser corrupted data silently** — one pass stripped the indentation a later pass needed, so a class token became a record name. Eight regression tests now pin it.
+> 2. **`Column(Integer, default=300)` made alias records impossible** — SQLAlchemy's `default=` fires when the attribute is `None` at flush time, and `None` was the value carrying the meaning.
+> 3. **Fixing that unmasked a second bug** — an alias's value isn't rdata for its type, so the per-type validator wrongly rejected it. Verify the *outcome*, not the diff.
+> 4. **A hydration mismatch on every page** — a Cloudscape modal mounts a portal even while hidden, and the server HTML has no portal. Fix: `if (!open) return null`.
+> 5. **My own passing assertions lied four times.** `is_visible()` is true for an element completely covered by another. Assert on pixels and network logs, not the DOM.
+>
+> **Read all of it (~20 min)** — this file is narrative, not reference. There is nothing to skip.
+
 > **This is the most valuable file in the folder.**
 >
 > Anybody can list features. Almost nobody can walk an interviewer through a bug they

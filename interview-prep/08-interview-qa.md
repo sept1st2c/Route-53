@@ -1,5 +1,15 @@
 # 08 — Interview Q&A Bank
 
+> ### TL;DR — how to work this file
+>
+> 1. **51 questions in 9 groups.** Don't read it — *say* it. Anything that comes out mumbled is something you don't understand yet.
+> 2. **The five that matter most:** Q1 (the pitch), Q3 (hardest bug), Q15 (the N+1), Q33 (httpOnly vs localStorage), Q42 (a time you broke something).
+> 3. **Every answer has the same shape:** direct answer in one or two sentences, then the detail that proves you lived it.
+> 4. **Q45–Q48 are the trade-off questions** — where senior candidates separate themselves. Rehearse those even if you skip others.
+> 5. **§10 is questions to ask *them*.** Have three ready; not asking any is a bad signal.
+>
+> **This file is drills, not reading (~35 min out loud).** Nothing here is reference.
+
 > **How to use this.** These answers are written to be *spoken*, not read. Say them out
 > loud once each — the ones that feel awkward in your mouth are the ones you don't
 > actually understand yet, and that's the signal to go back to the linked doc.
