@@ -96,22 +96,27 @@ export function AppShell({
   }
 
   return (
-    /* The shell is a fixed-height column that never scrolls: TopNav and the footer take their
-       natural height, and AppLayoutToolbar fills the gap and scrolls internally.
-       Left in normal flow on purpose — taking the header out of flow with `position: fixed`
-       makes AppLayout overlap it and swallow the page heading and nav title, while leaving
-       the document free to scroll drags the whole side navigation up under the header
-       (the reported "nav is glitched after scrolling"). Clamping the outer column instead
-       keeps both fixed. */
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    /* Sticky header + sticky footer, document scrolls — the arrangement AppLayout is built
+       for. It measures both via headerSelector/footerSelector and sizes itself to
+       `100vh - header - footer`, so it needs the page itself to provide the scroll.
+       Two arrangements were tried first and both broke:
+         - clamping this to `height: 100vh; overflow: hidden` stops the document scrolling
+           at all, so any page taller than the viewport (the create-record form on a short
+           screen) has its last rows clipped and unreachable;
+         - `position: fixed` on the header takes it out of flow, so AppLayout starts at y=0
+           and paints over the nav title and page heading.
+       `position: sticky` keeps the header in flow — so AppLayout still starts below it —
+       while pinning it during scroll, which is what stops the side navigation sliding up
+       underneath (the reported "nav is glitched after scrolling"). */
+    <>
       {/* Needs its own stacking context above AppLayout: TopNav's dropdowns (account menu,
           Regions, settings) are absolutely positioned and overhang the layout below, which
           otherwise paints over them and swallows clicks — Sign out became unclickable. */}
-      <div id="console-top-nav" style={{ position: "relative", zIndex: 1002 }}>
+      <div id="console-top-nav" style={{ position: "sticky", insetBlockStart: 0, zIndex: 1002 }}>
         <TopNav />
       </div>
 
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div>
         <AppLayoutToolbar
           headerSelector="#console-top-nav"
           footerSelector="#console-footer"
@@ -192,9 +197,12 @@ export function AppShell({
         />
       </div>
 
-      <div id="console-footer">
+      {/* Sticky rather than fixed for the same reason as the header: it stays in flow, so
+          AppLayout's footerSelector measurement reserves real space for it and content can
+          never end up underneath. */}
+      <div id="console-footer" style={{ position: "sticky", insetBlockEnd: 0, zIndex: 1001 }}>
         <ConsoleFooter />
       </div>
-    </div>
+    </>
   );
 }
