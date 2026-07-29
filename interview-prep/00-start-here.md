@@ -119,18 +119,23 @@ need it — not so you can read it. If you find yourself reading below a fold, s
 | 08 | [08-interview-qa.md](08-interview-qa.md) | 35 min aloud | — all drills | 51 questions with spoken-word answers |
 | 09 | [09-auth-and-security.md](09-auth-and-security.md) | 20 min | hardening checklist | Login end to end, JWT, bcrypt, cookies, tenancy |
 | 10 | [10-deployment-and-testing.md](10-deployment-and-testing.md) | 14 min | — short enough | Vercel + Render, cross-domain cookies, the test suite |
+| 11 | [11-most-likely-questions.md](11-most-likely-questions.md) | 30 min | — all drills | **The seven topics someone who sat this interview said to prepare** — incl. showing your DB on screen and tracing a button end to end |
 
 **Total above the fold: about 3 hours**, spread over the five evenings below. The other
 2,300 lines are lookup material you should never read front to back.
 
 ### If you only read three
 
-1. **[07-bugs-and-debugging.md](07-bugs-and-debugging.md)** — anyone can list features;
+1. **[11-most-likely-questions.md](11-most-likely-questions.md)** — the seven areas someone
+   who actually sat this interview named. It also has the one piece of homework in this
+   folder: installing a viewer so you can **show** your database on screen.
+2. **[07-bugs-and-debugging.md](07-bugs-and-debugging.md)** — anyone can list features;
    almost nobody can walk through a bug they found and proved. This is where the
    conversation gets interesting.
-2. **[08-interview-qa.md](08-interview-qa.md)** — rehearsal. Say the answers out loud.
-3. **[02-database.md](02-database.md)** — the most fact-dense file, and where the
-   sharpest follow-up questions land.
+3. **[08-interview-qa.md](08-interview-qa.md)** — rehearsal. Say the answers out loud.
+
+Then [02-database.md](02-database.md) if you have time — the most fact-dense file, and where
+the sharpest follow-up questions land.
 
 ---
 
